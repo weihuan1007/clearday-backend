@@ -37,15 +37,46 @@ jobs:
       - name: Check deploy script
         run: bash -n deploy/aws/update-backend.sh
 
+      - name: Validate deployment settings
+        shell: bash
+        run: |
+          set -euo pipefail
+          missing=0
+
+          if [[ -z "${VM_HOST:-}" ]]; then
+            echo "::error::VM_HOST is empty. Add it in clearday-backend -> Settings -> Secrets and variables -> Actions -> Variables."
+            missing=1
+          fi
+
+          if [[ -z "${VM_SSH_PRIVATE_KEY:-}" ]]; then
+            echo "::error::VM_SSH_PRIVATE_KEY is empty. Add the full EC2 .pem file content in clearday-backend -> Settings -> Secrets and variables -> Actions -> Secrets."
+            missing=1
+          fi
+
+          if [[ -z "${VM_USER:-}" ]]; then
+            echo "VM_USER is empty; deployment will use ubuntu."
+          fi
+
+          if [[ -z "${VM_PORT:-}" ]]; then
+            echo "VM_PORT is empty; deployment will use 22."
+          fi
+
+          if [[ "$missing" -ne 0 ]]; then
+            exit 1
+          fi
+
       - name: Configure SSH
         shell: bash
         run: |
           set -euo pipefail
           mkdir -p "$HOME/.ssh"
-          printf '%s\n' "$VM_SSH_PRIVATE_KEY" > "$HOME/.ssh/clearday_deploy_key"
+          printf '%s\n' "$VM_SSH_PRIVATE_KEY" | sed 's/\r$//' > "$HOME/.ssh/clearday_deploy_key"
           chmod 600 "$HOME/.ssh/clearday_deploy_key"
           PORT="${VM_PORT:-22}"
-          ssh-keyscan -p "$PORT" -H "$VM_HOST" >> "$HOME/.ssh/known_hosts"
+          if ! ssh-keyscan -T 15 -p "$PORT" -H "$VM_HOST" >> "$HOME/.ssh/known_hosts"; then
+            echo "::error::Cannot reach SSH on $VM_HOST:$PORT. Check the EC2 security group inbound rule for TCP 22 and confirm VM_HOST is the EC2 public DNS or public IP."
+            exit 1
+          fi
 
       - name: Package backend release
         run: tar -czf clearday-backend-release.tar.gz backend deploy
@@ -56,7 +87,7 @@ jobs:
           set -euo pipefail
           USERNAME="${VM_USER:-ubuntu}"
           PORT="${VM_PORT:-22}"
-          scp -P "$PORT" -i "$HOME/.ssh/clearday_deploy_key" \
+          scp -P "$PORT" -i "$HOME/.ssh/clearday_deploy_key" -o IdentitiesOnly=yes -o ConnectTimeout=20 \
             clearday-backend-release.tar.gz \
             "$USERNAME@$VM_HOST:/tmp/clearday-backend-release.tar.gz"
 
@@ -66,7 +97,7 @@ jobs:
           set -euo pipefail
           USERNAME="${VM_USER:-ubuntu}"
           PORT="${VM_PORT:-22}"
-          ssh -p "$PORT" -i "$HOME/.ssh/clearday_deploy_key" "$USERNAME@$VM_HOST" 'bash -s' <<'REMOTE'
+          ssh -p "$PORT" -i "$HOME/.ssh/clearday_deploy_key" -o IdentitiesOnly=yes -o ConnectTimeout=20 "$USERNAME@$VM_HOST" 'bash -s' <<'REMOTE'
           set -euo pipefail
           sudo rm -rf /tmp/clearday-backend-release
           mkdir -p /tmp/clearday-backend-release
