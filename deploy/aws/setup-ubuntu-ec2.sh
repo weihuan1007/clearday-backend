@@ -11,14 +11,16 @@ if [[ "${EUID:-$(id -u)}" -ne 0 ]]; then
 fi
 
 apt-get update
-apt-get install -y ca-certificates curl unzip
+apt-get install -y ca-certificates curl snapd unzip
 
 case "$(uname -m)" in
   x86_64)
     GO_ARCH="amd64"
+    AWSCLI_ARCH="x86_64"
     ;;
   aarch64 | arm64)
     GO_ARCH="arm64"
+    AWSCLI_ARCH="aarch64"
     ;;
   *)
     echo "Unsupported CPU architecture: $(uname -m)" >&2
@@ -32,6 +34,22 @@ rm -rf /usr/local/go
 tar -C /usr/local -xzf "/tmp/${GO_TARBALL}"
 ln -sf /usr/local/go/bin/go /usr/local/bin/go
 ln -sf /usr/local/go/bin/gofmt /usr/local/bin/gofmt
+
+if ! command -v aws >/dev/null 2>&1; then
+  curl -fsSLo /tmp/awscliv2.zip "https://awscli.amazonaws.com/awscli-exe-linux-${AWSCLI_ARCH}.zip"
+  rm -rf /tmp/aws
+  unzip -q /tmp/awscliv2.zip -d /tmp
+  /tmp/aws/install --update
+fi
+
+systemctl enable --now snapd.socket >/dev/null 2>&1 || true
+if command -v snap >/dev/null 2>&1; then
+  if ! snap list amazon-ssm-agent >/dev/null 2>&1; then
+    snap install amazon-ssm-agent --classic
+  fi
+  snap start amazon-ssm-agent >/dev/null 2>&1 || true
+fi
+systemctl enable --now snap.amazon-ssm-agent.amazon-ssm-agent.service >/dev/null 2>&1 || systemctl enable --now amazon-ssm-agent.service >/dev/null 2>&1 || true
 
 if ! id "$SERVICE_USER" >/dev/null 2>&1; then
   useradd --system --home "$APP_ROOT" --shell /usr/sbin/nologin "$SERVICE_USER"

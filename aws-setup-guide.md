@@ -354,18 +354,16 @@ AWS_ROLE_TO_ASSUME=arn:aws:iam::YOUR_ACCOUNT_ID:role/clearday-github-actions
 AWS_FRONTEND_BUCKET=your-bucket-name
 CLOUDFRONT_DISTRIBUTION_ID=your-cloudfront-distribution-id
 FRONTEND_API_BASE=/api
-VM_HOST=YOUR_EC2_PUBLIC_DNS
-VM_USER=ubuntu
-VM_PORT=22
+AWS_BACKEND_ROLE_TO_ASSUME=arn:aws:iam::YOUR_ACCOUNT_ID:role/clearday-backend-github-actions
+AWS_BACKEND_DEPLOY_BUCKET=your-backend-deploy-bucket-name
+AWS_BACKEND_INSTANCE_ID=your-ec2-instance-id
 ```
 
-Add repository secret:
+The backend workflow uses AWS Systems Manager, so you do not need to add your EC2 private key to GitHub.
 
 ```text
-VM_SSH_PRIVATE_KEY
+D:\reminder-app\repos\backend\ssm-github-actions-deploy-guide.md
 ```
-
-This is the private key content for SSH.
 
 ## Step 13: Create GitHub OIDC Role
 

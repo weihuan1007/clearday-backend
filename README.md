@@ -55,18 +55,31 @@ From PowerShell:
 .\deploy\scripts\deploy-backend.ps1 -VmHost YOUR_EC2_PUBLIC_DNS -SshKey C:\path\to\reminderapp.pem
 ```
 
-## GitHub Actions Later
+Use this only for emergency manual deployments.
 
-When ready, add repository variables:
+## GitHub Actions Deployment
+
+The recommended production deployment uses GitHub Actions with AWS Systems Manager, not SSH.
+
+Read:
 
 ```text
-VM_HOST
-VM_USER=ubuntu
-VM_PORT=22
+ssm-github-actions-deploy-guide.md
 ```
 
-Add repository secret:
+Repository variables:
 
 ```text
-VM_SSH_PRIVATE_KEY
+AWS_REGION=ap-southeast-1
+AWS_BACKEND_ROLE_TO_ASSUME
+AWS_BACKEND_DEPLOY_BUCKET
+AWS_BACKEND_INSTANCE_ID
+```
+
+Do not add your EC2 `.pem` private key to GitHub for this flow.
+
+The workflow file is:
+
+```text
+.github/workflows/deploy-backend.yml
 ```

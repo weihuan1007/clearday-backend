@@ -5,9 +5,11 @@ This folder creates the AWS resources that are cheap and appropriate for the rem
 - DynamoDB production table for real reminders.
 - DynamoDB development table for dummy reminders.
 - S3 bucket for frontend files.
+- Private S3 bucket for backend deployment packages.
 - CloudFront distribution for HTTPS frontend hosting.
-- EC2 instance profile that lets the backend read/write the DynamoDB tables.
+- EC2 instance profile that lets the backend read/write DynamoDB, read backend deploy packages, and use AWS Systems Manager.
 - EC2 security group for SSH and the Go backend port.
+- Optional GitHub Actions IAM role for safe backend deployment through Systems Manager.
 
 Terraform does not create the EC2 instance yet. For a beginner setup, create the EC2 instance in the AWS Console so you can easily choose a free-tier-eligible instance and key pair.
 
@@ -37,6 +39,14 @@ allowed_ssh_cidr          = "YOUR_PUBLIC_IP/32"
 allowed_backend_cidr      = "0.0.0.0/0"
 ```
 
+For safe backend GitHub Actions deployment through Systems Manager, also add:
+
+```hcl
+backend_deploy_bucket_name = "your-globally-unique-clearday-backend-deploy-bucket"
+github_backend_repository  = "YOUR_GITHUB_USERNAME/clearday-backend"
+backend_ec2_instance_id    = "YOUR_EC2_INSTANCE_ID"
+```
+
 For a more locked-down setup, later replace `allowed_backend_cidr` with CloudFront origin-facing IP restrictions or put the backend behind a private origin pattern.
 
 ## Commands
@@ -57,6 +67,8 @@ After apply:
 - `development_dynamodb_table_name`: development table. Use this in local `backend/.env` for dummy data.
 - `ec2_instance_profile_name`: attach this IAM instance profile to your EC2 instance.
 - `ec2_security_group_id`: attach this security group to your EC2 instance.
+- `backend_deploy_bucket_name`: set this as `AWS_BACKEND_DEPLOY_BUCKET` in the backend GitHub repo variables.
+- `github_backend_deploy_role_arn`: set this as `AWS_BACKEND_ROLE_TO_ASSUME` in the backend GitHub repo variables.
 - `frontend_bucket_name`: set this as `AWS_FRONTEND_BUCKET` in GitHub variables.
 - `cloudfront_distribution_id`: set this as `CLOUDFRONT_DISTRIBUTION_ID` in GitHub variables.
 - `cloudfront_domain_name`: your public website URL.
@@ -75,3 +87,14 @@ ALLOWED_BACKEND_CIDR
 ```
 
 `AWS_ROLE_TO_ASSUME` should be an IAM role trusted by GitHub Actions OIDC.
+
+The backend GitHub Actions workflow expects:
+
+```text
+AWS_REGION
+AWS_BACKEND_ROLE_TO_ASSUME
+AWS_BACKEND_DEPLOY_BUCKET
+AWS_BACKEND_INSTANCE_ID
+```
+
+Read `D:\reminder-app\repos\backend\ssm-github-actions-deploy-guide.md` for the full backend deployment setup.

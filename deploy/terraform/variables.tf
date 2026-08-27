@@ -15,6 +15,12 @@ variable "frontend_bucket_name" {
   type        = string
 }
 
+variable "backend_deploy_bucket_name" {
+  description = "Globally unique private S3 bucket name for backend release packages. Leave empty to use frontend_bucket_name plus -backend-deploy."
+  type        = string
+  default     = ""
+}
+
 variable "dynamodb_table_name" {
   description = "Production DynamoDB table name for reminders."
   type        = string
@@ -57,8 +63,32 @@ variable "github_repository" {
   default     = ""
 }
 
+variable "github_backend_repository" {
+  description = "Backend GitHub repository in owner/name format, for example weihuan1007/clearday-backend. When set with backend_ec2_instance_id, Terraform creates the backend GitHub Actions deploy role."
+  type        = string
+  default     = ""
+}
+
 variable "github_branch" {
   description = "GitHub branch that deploys production."
   type        = string
   default     = "main"
+}
+
+variable "github_oidc_provider_arn" {
+  description = "Existing GitHub Actions OIDC provider ARN. Leave empty to use arn:aws:iam::<account-id>:oidc-provider/token.actions.githubusercontent.com."
+  type        = string
+  default     = ""
+}
+
+variable "github_backend_deploy_role_name" {
+  description = "IAM role name used by the backend GitHub Actions SSM deployment workflow."
+  type        = string
+  default     = "clearday-backend-github-actions"
+}
+
+variable "backend_ec2_instance_id" {
+  description = "Existing EC2 instance id for backend SSM deployment, for example i-0123456789abcdef0. When set with github_backend_repository, Terraform creates the backend GitHub Actions deploy role."
+  type        = string
+  default     = ""
 }

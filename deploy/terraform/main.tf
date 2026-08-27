@@ -5,7 +5,15 @@ locals {
   }
 
   backend_enabled = trimspace(var.backend_origin_domain_name) != ""
+
+  backend_deploy_bucket_name      = trimspace(var.backend_deploy_bucket_name) != "" ? var.backend_deploy_bucket_name : "${var.frontend_bucket_name}-backend-deploy"
+  github_backend_role_enabled     = trimspace(var.github_backend_repository) != "" && trimspace(var.backend_ec2_instance_id) != ""
+  github_oidc_provider_arn        = trimspace(var.github_oidc_provider_arn) != "" ? var.github_oidc_provider_arn : "arn:aws:iam::${data.aws_caller_identity.current.account_id}:oidc-provider/token.actions.githubusercontent.com"
+  github_backend_repository_older = "repo:${var.github_backend_repository}:environment:production"
+  github_backend_repository_newer = "repo:${replace(var.github_backend_repository, "/", "@*/")}@*:environment:production"
 }
+
+data "aws_caller_identity" "current" {}
 
 data "aws_vpc" "default" {
   default = true
@@ -83,6 +91,58 @@ resource "aws_s3_bucket_server_side_encryption_configuration" "frontend" {
   rule {
     apply_server_side_encryption_by_default {
       sse_algorithm = "AES256"
+    }
+  }
+}
+
+resource "aws_s3_bucket" "backend_deploy" {
+  bucket = local.backend_deploy_bucket_name
+
+  tags = merge(local.common_tags, {
+    Purpose = "backend-deploy-artifacts"
+  })
+}
+
+resource "aws_s3_bucket_ownership_controls" "backend_deploy" {
+  bucket = aws_s3_bucket.backend_deploy.id
+
+  rule {
+    object_ownership = "BucketOwnerEnforced"
+  }
+}
+
+resource "aws_s3_bucket_public_access_block" "backend_deploy" {
+  bucket = aws_s3_bucket.backend_deploy.id
+
+  block_public_acls       = true
+  block_public_policy     = true
+  ignore_public_acls      = true
+  restrict_public_buckets = true
+}
+
+resource "aws_s3_bucket_server_side_encryption_configuration" "backend_deploy" {
+  bucket = aws_s3_bucket.backend_deploy.id
+
+  rule {
+    apply_server_side_encryption_by_default {
+      sse_algorithm = "AES256"
+    }
+  }
+}
+
+resource "aws_s3_bucket_lifecycle_configuration" "backend_deploy" {
+  bucket = aws_s3_bucket.backend_deploy.id
+
+  rule {
+    id     = "expire-old-backend-releases"
+    status = "Enabled"
+
+    filter {
+      prefix = ""
+    }
+
+    expiration {
+      days = 7
     }
   }
 }
@@ -254,10 +314,132 @@ resource "aws_iam_role_policy_attachment" "ec2_dynamodb_access" {
   policy_arn = aws_iam_policy.dynamodb_access.arn
 }
 
+resource "aws_iam_role_policy_attachment" "ec2_ssm_core" {
+  role       = aws_iam_role.ec2.name
+  policy_arn = "arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore"
+}
+
+data "aws_iam_policy_document" "backend_deploy_bucket_read" {
+  statement {
+    sid       = "ListBackendDeployBucket"
+    actions   = ["s3:ListBucket"]
+    resources = [aws_s3_bucket.backend_deploy.arn]
+  }
+
+  statement {
+    sid       = "ReadBackendDeployPackages"
+    actions   = ["s3:GetObject"]
+    resources = ["${aws_s3_bucket.backend_deploy.arn}/*"]
+  }
+}
+
+resource "aws_iam_policy" "backend_deploy_bucket_read" {
+  name   = "${var.app_name}-backend-deploy-bucket-read"
+  policy = data.aws_iam_policy_document.backend_deploy_bucket_read.json
+  tags   = local.common_tags
+}
+
+resource "aws_iam_role_policy_attachment" "ec2_backend_deploy_bucket_read" {
+  role       = aws_iam_role.ec2.name
+  policy_arn = aws_iam_policy.backend_deploy_bucket_read.arn
+}
+
 resource "aws_iam_instance_profile" "ec2" {
   name = "${var.app_name}-ec2-profile"
   role = aws_iam_role.ec2.name
   tags = local.common_tags
+}
+
+data "aws_iam_policy_document" "github_backend_assume_role" {
+  count = local.github_backend_role_enabled ? 1 : 0
+
+  statement {
+    actions = ["sts:AssumeRoleWithWebIdentity"]
+
+    principals {
+      type        = "Federated"
+      identifiers = [local.github_oidc_provider_arn]
+    }
+
+    condition {
+      test     = "StringEquals"
+      variable = "token.actions.githubusercontent.com:aud"
+      values   = ["sts.amazonaws.com"]
+    }
+
+    condition {
+      test     = "StringLike"
+      variable = "token.actions.githubusercontent.com:sub"
+      values = [
+        local.github_backend_repository_older,
+        local.github_backend_repository_newer,
+      ]
+    }
+  }
+}
+
+resource "aws_iam_role" "github_backend_deploy" {
+  count = local.github_backend_role_enabled ? 1 : 0
+
+  name               = var.github_backend_deploy_role_name
+  assume_role_policy = data.aws_iam_policy_document.github_backend_assume_role[0].json
+  tags               = local.common_tags
+}
+
+data "aws_iam_policy_document" "github_backend_deploy" {
+  count = local.github_backend_role_enabled ? 1 : 0
+
+  statement {
+    sid       = "ListBackendDeployBucket"
+    actions   = ["s3:ListBucket"]
+    resources = [aws_s3_bucket.backend_deploy.arn]
+  }
+
+  statement {
+    sid = "WriteBackendDeployPackages"
+    actions = [
+      "s3:DeleteObject",
+      "s3:PutObject",
+    ]
+    resources = ["${aws_s3_bucket.backend_deploy.arn}/*"]
+  }
+
+  statement {
+    sid = "SendBackendDeployCommand"
+    actions = [
+      "ssm:SendCommand",
+    ]
+    resources = [
+      "arn:aws:ec2:${var.aws_region}:${data.aws_caller_identity.current.account_id}:instance/${var.backend_ec2_instance_id}",
+      "arn:aws:ssm:${var.aws_region}::document/AWS-RunShellScript",
+    ]
+  }
+
+  statement {
+    sid = "ReadBackendDeployCommandStatus"
+    actions = [
+      "ssm:DescribeInstanceInformation",
+      "ssm:GetCommandInvocation",
+      "ssm:ListCommandInvocations",
+      "ssm:ListCommands",
+    ]
+    resources = ["*"]
+  }
+}
+
+resource "aws_iam_policy" "github_backend_deploy" {
+  count = local.github_backend_role_enabled ? 1 : 0
+
+  name   = "${var.app_name}-github-backend-deploy"
+  policy = data.aws_iam_policy_document.github_backend_deploy[0].json
+  tags   = local.common_tags
+}
+
+resource "aws_iam_role_policy_attachment" "github_backend_deploy" {
+  count = local.github_backend_role_enabled ? 1 : 0
+
+  role       = aws_iam_role.github_backend_deploy[0].name
+  policy_arn = aws_iam_policy.github_backend_deploy[0].arn
 }
 
 resource "aws_security_group" "ec2" {

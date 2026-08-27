@@ -10,16 +10,20 @@ concurrency:
   group: backend-production
   cancel-in-progress: false
 
+permissions:
+  contents: read
+  id-token: write
+
 jobs:
   deploy:
-    name: Deploy backend to AWS EC2
+    name: Deploy backend to AWS EC2 through SSM
     runs-on: ubuntu-latest
     environment: production
     env:
-      VM_HOST: ${{ vars.VM_HOST }}
-      VM_USER: ${{ vars.VM_USER }}
-      VM_PORT: ${{ vars.VM_PORT }}
-      VM_SSH_PRIVATE_KEY: ${{ secrets.VM_SSH_PRIVATE_KEY }}
+      AWS_REGION: ${{ vars.AWS_REGION }}
+      AWS_BACKEND_ROLE_TO_ASSUME: ${{ vars.AWS_BACKEND_ROLE_TO_ASSUME }}
+      AWS_BACKEND_DEPLOY_BUCKET: ${{ vars.AWS_BACKEND_DEPLOY_BUCKET }}
+      AWS_BACKEND_INSTANCE_ID: ${{ vars.AWS_BACKEND_INSTANCE_ID }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -43,64 +47,134 @@ jobs:
           set -euo pipefail
           missing=0
 
-          if [[ -z "${VM_HOST:-}" ]]; then
-            echo "::error::VM_HOST is empty. Add it in clearday-backend -> Settings -> Secrets and variables -> Actions -> Variables."
+          if [[ -z "${AWS_REGION:-}" ]]; then
+            echo "::error::AWS_REGION is empty. Add it in clearday-backend -> Settings -> Secrets and variables -> Actions -> Variables."
             missing=1
           fi
 
-          if [[ -z "${VM_SSH_PRIVATE_KEY:-}" ]]; then
-            echo "::error::VM_SSH_PRIVATE_KEY is empty. Add the full EC2 .pem file content in clearday-backend -> Settings -> Secrets and variables -> Actions -> Secrets."
+          if [[ -z "${AWS_BACKEND_ROLE_TO_ASSUME:-}" ]]; then
+            echo "::error::AWS_BACKEND_ROLE_TO_ASSUME is empty. Add the backend GitHub Actions role ARN as a repository variable."
             missing=1
           fi
 
-          if [[ -z "${VM_USER:-}" ]]; then
-            echo "VM_USER is empty; deployment will use ubuntu."
+          if [[ -z "${AWS_BACKEND_DEPLOY_BUCKET:-}" ]]; then
+            echo "::error::AWS_BACKEND_DEPLOY_BUCKET is empty. Add the private S3 bucket used for backend release packages."
+            missing=1
           fi
 
-          if [[ -z "${VM_PORT:-}" ]]; then
-            echo "VM_PORT is empty; deployment will use 22."
+          if [[ -z "${AWS_BACKEND_INSTANCE_ID:-}" ]]; then
+            echo "::error::AWS_BACKEND_INSTANCE_ID is empty. Add your EC2 instance id, for example i-0123456789abcdef0."
+            missing=1
           fi
 
           if [[ "$missing" -ne 0 ]]; then
             exit 1
           fi
 
-      - name: Configure SSH
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v6
+        with:
+          role-to-assume: ${{ env.AWS_BACKEND_ROLE_TO_ASSUME }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Package backend release
+        id: package
         shell: bash
         run: |
           set -euo pipefail
-          mkdir -p "$HOME/.ssh"
-          printf '%s\n' "$VM_SSH_PRIVATE_KEY" | sed 's/\r$//' > "$HOME/.ssh/clearday_deploy_key"
-          chmod 600 "$HOME/.ssh/clearday_deploy_key"
-          PORT="${VM_PORT:-22}"
-          if ! ssh-keyscan -T 15 -p "$PORT" -H "$VM_HOST" >> "$HOME/.ssh/known_hosts"; then
-            echo "::error::Cannot reach SSH on $VM_HOST:$PORT. Check the EC2 security group inbound rule for TCP 22 and confirm VM_HOST is the EC2 public DNS or public IP."
+          artifact_key="backend/releases/${GITHUB_RUN_ID}-${GITHUB_SHA}/clearday-backend-release.tar.gz"
+          tar -czf clearday-backend-release.tar.gz backend deploy
+          echo "artifact_key=$artifact_key" >> "$GITHUB_OUTPUT"
+
+      - name: Verify AWS and SSM access
+        shell: bash
+        run: |
+          set -euo pipefail
+          aws sts get-caller-identity
+
+          ping_status="$(
+            aws ssm describe-instance-information \
+              --filters "Key=InstanceIds,Values=${AWS_BACKEND_INSTANCE_ID}" \
+              --query "InstanceInformationList[0].PingStatus" \
+              --output text
+          )"
+
+          if [[ "$ping_status" != "Online" ]]; then
+            echo "::error::EC2 instance ${AWS_BACKEND_INSTANCE_ID} is not online in Systems Manager. Check SSM Agent and the EC2 instance profile."
+            echo "SSM PingStatus: $ping_status"
             exit 1
           fi
 
-      - name: Package backend release
-        run: tar -czf clearday-backend-release.tar.gz backend deploy
-
-      - name: Upload release
+      - name: Upload release to S3
         shell: bash
         run: |
           set -euo pipefail
-          USERNAME="${VM_USER:-ubuntu}"
-          PORT="${VM_PORT:-22}"
-          scp -P "$PORT" -i "$HOME/.ssh/clearday_deploy_key" -o IdentitiesOnly=yes -o ConnectTimeout=20 \
-            clearday-backend-release.tar.gz \
-            "$USERNAME@$VM_HOST:/tmp/clearday-backend-release.tar.gz"
+          aws s3 cp clearday-backend-release.tar.gz "s3://${AWS_BACKEND_DEPLOY_BUCKET}/${{ steps.package.outputs.artifact_key }}" --only-show-errors
 
-      - name: Deploy on EC2
+      - name: Deploy on EC2 through SSM
         shell: bash
         run: |
           set -euo pipefail
-          USERNAME="${VM_USER:-ubuntu}"
-          PORT="${VM_PORT:-22}"
-          ssh -p "$PORT" -i "$HOME/.ssh/clearday_deploy_key" -o IdentitiesOnly=yes -o ConnectTimeout=20 "$USERNAME@$VM_HOST" 'bash -s' <<'REMOTE'
+          command_script="$(
+            cat <<SCRIPT
           set -euo pipefail
-          sudo rm -rf /tmp/clearday-backend-release
+          release_uri="s3://${AWS_BACKEND_DEPLOY_BUCKET}/${{ steps.package.outputs.artifact_key }}"
+          rm -rf /tmp/clearday-backend-release
           mkdir -p /tmp/clearday-backend-release
+          aws s3 cp "\$release_uri" /tmp/clearday-backend-release.tar.gz --only-show-errors
           tar -xzf /tmp/clearday-backend-release.tar.gz -C /tmp/clearday-backend-release
-          sudo bash /tmp/clearday-backend-release/deploy/aws/update-backend.sh /tmp/clearday-backend-release
-          REMOTE
+          bash /tmp/clearday-backend-release/deploy/aws/update-backend.sh /tmp/clearday-backend-release
+          SCRIPT
+          )"
+
+          jq -n --arg commands "$command_script" '{commands: [$commands]}' > ssm-parameters.json
+
+          command_id="$(
+            aws ssm send-command \
+              --instance-ids "$AWS_BACKEND_INSTANCE_ID" \
+              --document-name "AWS-RunShellScript" \
+              --comment "ClearDay backend deploy ${GITHUB_SHA}" \
+              --parameters file://ssm-parameters.json \
+              --timeout-seconds 900 \
+              --query "Command.CommandId" \
+              --output text
+          )"
+
+          echo "SSM command id: $command_id"
+          aws ssm wait command-executed --command-id "$command_id" --instance-id "$AWS_BACKEND_INSTANCE_ID" || true
+
+          status="$(
+            aws ssm get-command-invocation \
+              --command-id "$command_id" \
+              --instance-id "$AWS_BACKEND_INSTANCE_ID" \
+              --query "Status" \
+              --output text
+          )"
+
+          echo "SSM command status: $status"
+          echo "::group::SSM stdout"
+          aws ssm get-command-invocation \
+            --command-id "$command_id" \
+            --instance-id "$AWS_BACKEND_INSTANCE_ID" \
+            --query "StandardOutputContent" \
+            --output text
+          echo "::endgroup::"
+
+          echo "::group::SSM stderr"
+          aws ssm get-command-invocation \
+            --command-id "$command_id" \
+            --instance-id "$AWS_BACKEND_INSTANCE_ID" \
+            --query "StandardErrorContent" \
+            --output text
+          echo "::endgroup::"
+
+          if [[ "$status" != "Success" ]]; then
+            exit 1
+          fi
+
+      - name: Delete uploaded release package
+        if: always() && steps.package.outputs.artifact_key != ''
+        shell: bash
+        run: |
+          set -euo pipefail
+          aws s3 rm "s3://${AWS_BACKEND_DEPLOY_BUCKET}/${{ steps.package.outputs.artifact_key }}" --only-show-errors || true
