@@ -13,6 +13,12 @@ TIMESTAMP="$(date -u +%Y%m%dT%H%M%SZ)"
 BACKUP_DIR="$BACKUP_ROOT/backend-$TIMESTAMP"
 NEW_BIN="/tmp/clearday-$TIMESTAMP"
 
+export PATH="/usr/local/go/bin:/usr/local/bin:/usr/bin:/bin:/usr/local/sbin:/usr/sbin:/sbin:${PATH:-}"
+export HOME="${HOME:-/root}"
+export GOPATH="${GOPATH:-$HOME/go}"
+export GOMODCACHE="${GOMODCACHE:-$GOPATH/pkg/mod}"
+export GOCACHE="${GOCACHE:-$HOME/.cache/go-build}"
+
 if [[ "${EUID:-$(id -u)}" -ne 0 ]]; then
   echo "Run this script with sudo." >&2
   exit 1
@@ -58,6 +64,12 @@ if [[ -f "$BIN_PATH" ]]; then
 fi
 
 echo "Building AWS-compatible backend..."
+mkdir -p "$GOMODCACHE" "$GOCACHE"
+if ! command -v go >/dev/null 2>&1; then
+  echo "Go is not installed or is not available in PATH. Run deploy/aws/setup-ubuntu-ec2.sh on the EC2 instance, then rerun this deployment." >&2
+  exit 127
+fi
+go version
 pushd "$SOURCE_DIR/backend" >/dev/null
 go mod tidy
 go mod download
