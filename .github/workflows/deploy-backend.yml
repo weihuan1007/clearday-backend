@@ -1,0 +1,75 @@
+name: Deploy Backend
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+concurrency:
+  group: backend-production
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    name: Deploy backend to AWS EC2
+    runs-on: ubuntu-latest
+    environment: production
+    env:
+      VM_HOST: ${{ vars.VM_HOST }}
+      VM_USER: ${{ vars.VM_USER }}
+      VM_PORT: ${{ vars.VM_PORT }}
+      VM_SSH_PRIVATE_KEY: ${{ secrets.VM_SSH_PRIVATE_KEY }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: "1.24"
+          cache-dependency-path: backend/go.sum
+
+      - name: Test backend
+        working-directory: backend
+        run: go test ./...
+
+      - name: Check deploy script
+        run: bash -n deploy/aws/update-backend.sh
+
+      - name: Configure SSH
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$HOME/.ssh"
+          printf '%s\n' "$VM_SSH_PRIVATE_KEY" > "$HOME/.ssh/clearday_deploy_key"
+          chmod 600 "$HOME/.ssh/clearday_deploy_key"
+          PORT="${VM_PORT:-22}"
+          ssh-keyscan -p "$PORT" -H "$VM_HOST" >> "$HOME/.ssh/known_hosts"
+
+      - name: Package backend release
+        run: tar -czf clearday-backend-release.tar.gz backend deploy
+
+      - name: Upload release
+        shell: bash
+        run: |
+          set -euo pipefail
+          USERNAME="${VM_USER:-ubuntu}"
+          PORT="${VM_PORT:-22}"
+          scp -P "$PORT" -i "$HOME/.ssh/clearday_deploy_key" \
+            clearday-backend-release.tar.gz \
+            "$USERNAME@$VM_HOST:/tmp/clearday-backend-release.tar.gz"
+
+      - name: Deploy on EC2
+        shell: bash
+        run: |
+          set -euo pipefail
+          USERNAME="${VM_USER:-ubuntu}"
+          PORT="${VM_PORT:-22}"
+          ssh -p "$PORT" -i "$HOME/.ssh/clearday_deploy_key" "$USERNAME@$VM_HOST" 'bash -s' <<'REMOTE'
+          set -euo pipefail
+          sudo rm -rf /tmp/clearday-backend-release
+          mkdir -p /tmp/clearday-backend-release
+          tar -xzf /tmp/clearday-backend-release.tar.gz -C /tmp/clearday-backend-release
+          sudo bash /tmp/clearday-backend-release/deploy/aws/update-backend.sh /tmp/clearday-backend-release
+          REMOTE

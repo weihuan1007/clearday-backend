@@ -1,0 +1,41 @@
+# OS/editor files
+.DS_Store
+Thumbs.db
+desktop.ini
+.vscode/
+.idea/
+
+# Local environment and data
+.env
+.env.*
+*.env
+!*.env.example
+data/
+
+# Credentials
+*.pem
+*.key
+*.ppk
+.aws/
+
+# Go output
+clearday
+clearday.exe
+backend/clearday
+backend/clearday.exe
+*.test
+coverage.out
+coverage.html
+
+# Terraform local files
+.terraform/
+*.tfstate
+*.tfstate.*
+terraform.tfvars
+*.auto.tfvars
+
+# Logs and packages
+*.log
+*.zip
+*.tar
+*.tar.gz
