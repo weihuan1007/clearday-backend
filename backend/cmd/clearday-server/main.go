@@ -37,10 +37,11 @@ func main() {
 
 	service := reminders.NewService(store)
 	router := server.NewRouter(server.Options{
-		APIHandler: reminders.NewHandler(service, logger),
-		APIToken:   cfg.APIToken,
-		StaticDir:  cfg.StaticDir,
-		Logger:     logger,
+		APIHandler:     reminders.NewHandler(service, logger),
+		APIToken:       cfg.APIToken,
+		ExposeAPIToken: cfg.ExposeAPIToken,
+		StaticDir:      cfg.StaticDir,
+		Logger:         logger,
 	})
 
 	httpServer := &http.Server{

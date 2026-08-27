@@ -10,13 +10,14 @@ import (
 )
 
 type Config struct {
-	Addr          string
-	APIToken      string
-	Store         string
-	JSONPath      string
-	DynamoDBTable string
-	AWSRegion     string
-	StaticDir     string
+	Addr           string
+	APIToken       string
+	Store          string
+	JSONPath       string
+	DynamoDBTable  string
+	AWSRegion      string
+	StaticDir      string
+	ExposeAPIToken bool
 }
 
 type InvalidStoreError struct {
@@ -35,13 +36,14 @@ func Load() (Config, error) {
 	}
 
 	cfg := Config{
-		Addr:          getEnv("CLEAR_DAY_ADDR", ":8080"),
-		APIToken:      strings.TrimSpace(os.Getenv("CLEAR_DAY_API_TOKEN")),
-		Store:         strings.ToLower(getEnv("CLEAR_DAY_STORE", "json")),
-		JSONPath:      getEnv("CLEAR_DAY_JSON_PATH", filepath.Join("..", "data", "reminders.json")),
-		DynamoDBTable: strings.TrimSpace(os.Getenv("CLEAR_DAY_DYNAMODB_TABLE")),
-		AWSRegion:     getEnv("AWS_REGION", getEnv("AWS_DEFAULT_REGION", "")),
-		StaticDir:     getEnv("CLEAR_DAY_STATIC_DIR", filepath.Join("..", "..", "frontend")),
+		Addr:           getEnv("CLEAR_DAY_ADDR", ":8080"),
+		APIToken:       strings.TrimSpace(os.Getenv("CLEAR_DAY_API_TOKEN")),
+		Store:          strings.ToLower(getEnv("CLEAR_DAY_STORE", "json")),
+		JSONPath:       getEnv("CLEAR_DAY_JSON_PATH", filepath.Join("..", "data", "reminders.json")),
+		DynamoDBTable:  strings.TrimSpace(os.Getenv("CLEAR_DAY_DYNAMODB_TABLE")),
+		AWSRegion:      getEnv("AWS_REGION", getEnv("AWS_DEFAULT_REGION", "")),
+		StaticDir:      getEnv("CLEAR_DAY_STATIC_DIR", filepath.Join("..", "..", "frontend")),
+		ExposeAPIToken: getEnvBool("CLEAR_DAY_EXPOSE_API_TOKEN", false),
 	}
 
 	if cfg.Store == "" {
@@ -119,4 +121,17 @@ func getEnv(key string, fallback string) string {
 		return fallback
 	}
 	return value
+}
+
+func getEnvBool(key string, fallback bool) bool {
+	switch strings.ToLower(strings.TrimSpace(os.Getenv(key))) {
+	case "":
+		return fallback
+	case "1", "true", "yes", "on":
+		return true
+	case "0", "false", "no", "off":
+		return false
+	default:
+		return fallback
+	}
 }

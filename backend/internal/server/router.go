@@ -2,16 +2,18 @@ package server
 
 import (
 	"crypto/subtle"
+	"encoding/json"
 	"log/slog"
 	"net/http"
 	"strings"
 )
 
 type Options struct {
-	APIHandler http.Handler
-	APIToken   string
-	StaticDir  string
-	Logger     *slog.Logger
+	APIHandler     http.Handler
+	APIToken       string
+	ExposeAPIToken bool
+	StaticDir      string
+	Logger         *slog.Logger
 }
 
 func NewRouter(options Options) http.Handler {
@@ -24,6 +26,7 @@ func NewRouter(options Options) http.Handler {
 		_, _ = response.Write([]byte(`{"status":"ok"}` + "\n"))
 	})
 
+	mux.HandleFunc("/config.js", serveRuntimeConfig(options))
 	mux.Handle("/api/reminders", withCORS(withBearerAuth(options.APIToken, options.APIHandler)))
 	mux.Handle("/api/reminders/", withCORS(withBearerAuth(options.APIToken, options.APIHandler)))
 
@@ -32,6 +35,37 @@ func NewRouter(options Options) http.Handler {
 	}
 
 	return logRequests(options.Logger, mux)
+}
+
+func serveRuntimeConfig(options Options) http.HandlerFunc {
+	type runtimeConfig struct {
+		APIBase  string `json:"apiBase"`
+		APIToken string `json:"apiToken,omitempty"`
+	}
+
+	cfg := runtimeConfig{APIBase: "/api"}
+	if options.ExposeAPIToken && options.APIToken != "" {
+		cfg.APIToken = options.APIToken
+	}
+
+	return func(response http.ResponseWriter, request *http.Request) {
+		if request.Method != http.MethodGet && request.Method != http.MethodHead {
+			response.WriteHeader(http.StatusMethodNotAllowed)
+			return
+		}
+
+		payload, err := json.MarshalIndent(cfg, "", "  ")
+		if err != nil {
+			response.WriteHeader(http.StatusInternalServerError)
+			return
+		}
+
+		response.Header().Set("Content-Type", "application/javascript; charset=utf-8")
+		response.Header().Set("Cache-Control", "no-cache")
+		_, _ = response.Write([]byte("window.CLEARDAY_CONFIG = "))
+		_, _ = response.Write(payload)
+		_, _ = response.Write([]byte(";\n"))
+	}
 }
 
 func withCORS(next http.Handler) http.Handler {

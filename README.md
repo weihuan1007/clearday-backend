@@ -43,9 +43,12 @@ That file is not pushed to GitHub. It should point to the development table only
 CLEAR_DAY_STORE=dynamodb
 CLEAR_DAY_DYNAMODB_TABLE=clearday-reminders-dev
 AWS_REGION=ap-southeast-1
+CLEAR_DAY_EXPOSE_API_TOKEN=true
 ```
 
 Use `clearday-reminders-dev` for dummy data and testing. Keep real reminders in `clearday-reminders`.
+
+`CLEAR_DAY_EXPOSE_API_TOKEN=true` lets the local browser read the token from `/config.js`, so local development does not show the token popup. Keep this as a local convenience; exposing a token in browser JavaScript means the browser can read it.
 
 ## Manual Deploy
 
