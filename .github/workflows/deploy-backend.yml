@@ -117,11 +117,18 @@ jobs:
           set -euo pipefail
           command_script="$(
             cat <<SCRIPT
+          #!/usr/bin/env bash
           set -euo pipefail
+          export PATH="/usr/local/bin:/usr/bin:/bin:/usr/local/sbin:/usr/sbin:/sbin:\$PATH"
+          AWS_CLI="\$(command -v aws || true)"
+          if [[ -z "\$AWS_CLI" ]]; then
+            echo "aws CLI is not installed on this EC2 instance. Install AWS CLI v2, then rerun this workflow." >&2
+            exit 127
+          fi
           release_uri="s3://${AWS_BACKEND_DEPLOY_BUCKET}/${{ steps.package.outputs.artifact_key }}"
           rm -rf /tmp/clearday-backend-release
           mkdir -p /tmp/clearday-backend-release
-          aws s3 cp "\$release_uri" /tmp/clearday-backend-release.tar.gz --only-show-errors
+          "\$AWS_CLI" s3 cp "\$release_uri" /tmp/clearday-backend-release.tar.gz --only-show-errors
           tar -xzf /tmp/clearday-backend-release.tar.gz -C /tmp/clearday-backend-release
           bash /tmp/clearday-backend-release/deploy/aws/update-backend.sh /tmp/clearday-backend-release
           SCRIPT
