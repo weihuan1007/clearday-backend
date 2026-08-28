@@ -69,7 +69,7 @@ func (handler *Handler) collection(response http.ResponseWriter, request *http.R
 
 func (handler *Handler) item(response http.ResponseWriter, request *http.Request, id string) {
 	switch request.Method {
-	case http.MethodPut:
+	case http.MethodPut, http.MethodPost:
 		var input Input
 		if err := json.NewDecoder(request.Body).Decode(&input); err != nil {
 			writeError(response, http.StatusBadRequest, "Request body must be valid JSON.")
@@ -90,7 +90,7 @@ func (handler *Handler) item(response http.ResponseWriter, request *http.Request
 		}
 		response.WriteHeader(http.StatusNoContent)
 	default:
-		response.Header().Set("Allow", "PUT, DELETE")
+		response.Header().Set("Allow", "POST, PUT, DELETE")
 		writeError(response, http.StatusMethodNotAllowed, "Method is not allowed.")
 	}
 }

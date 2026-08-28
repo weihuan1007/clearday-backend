@@ -19,14 +19,23 @@ type Store struct {
 }
 
 type record struct {
-	ID        string `dynamodbav:"id"`
-	Title     string `dynamodbav:"title"`
-	Category  string `dynamodbav:"category"`
-	Date      string `dynamodbav:"date"`
-	Notes     string `dynamodbav:"notes"`
-	IsDone    bool   `dynamodbav:"isDone"`
-	CreatedAt string `dynamodbav:"createdAt"`
-	UpdatedAt string `dynamodbav:"updatedAt"`
+	ID             string `dynamodbav:"id"`
+	Title          string `dynamodbav:"title"`
+	Category       string `dynamodbav:"category"`
+	Date           string `dynamodbav:"date"`
+	Time           string `dynamodbav:"time,omitempty"`
+	Start          string `dynamodbav:"start,omitempty"`
+	StartTime      string `dynamodbav:"startTime,omitempty"`
+	StartTimeTitle string `dynamodbav:"StartTime,omitempty"`
+	StartTimeSnake string `dynamodbav:"start_time,omitempty"`
+	End            string `dynamodbav:"end,omitempty"`
+	EndTime        string `dynamodbav:"endTime,omitempty"`
+	EndTimeTitle   string `dynamodbav:"EndTime,omitempty"`
+	EndTimeSnake   string `dynamodbav:"end_time,omitempty"`
+	Notes          string `dynamodbav:"notes"`
+	IsDone         bool   `dynamodbav:"isDone"`
+	CreatedAt      string `dynamodbav:"createdAt"`
+	UpdatedAt      string `dynamodbav:"updatedAt"`
 }
 
 func Open(tableName string, cfg aws.Config) (*Store, error) {
@@ -138,11 +147,16 @@ func keyForID(id string) map[string]types.AttributeValue {
 }
 
 func fromReminder(reminder reminders.Reminder) record {
+	start := firstNonEmpty(reminder.Time, reminder.StartTime)
+
 	return record{
 		ID:        reminder.ID,
 		Title:     reminder.Title,
 		Category:  reminder.Category,
 		Date:      reminder.Date,
+		Time:      start,
+		StartTime: start,
+		EndTime:   reminder.EndTime,
 		Notes:     reminder.Notes,
 		IsDone:    reminder.IsDone,
 		CreatedAt: formatTime(reminder.CreatedAt),
@@ -151,16 +165,31 @@ func fromReminder(reminder reminders.Reminder) record {
 }
 
 func (item record) toReminder() reminders.Reminder {
+	start := firstNonEmpty(item.Time, item.StartTime, item.StartTimeTitle, item.StartTimeSnake, item.Start)
+	end := firstNonEmpty(item.EndTime, item.EndTimeTitle, item.EndTimeSnake, item.End)
+
 	return reminders.Reminder{
 		ID:        item.ID,
 		Title:     item.Title,
 		Category:  item.Category,
 		Date:      item.Date,
+		Time:      start,
+		StartTime: start,
+		EndTime:   end,
 		Notes:     item.Notes,
 		IsDone:    item.IsDone,
 		CreatedAt: parseTime(item.CreatedAt),
 		UpdatedAt: parseTime(item.UpdatedAt),
 	}
+}
+
+func firstNonEmpty(values ...string) string {
+	for _, value := range values {
+		if value != "" {
+			return value
+		}
+	}
+	return ""
 }
 
 func formatTime(value time.Time) string {

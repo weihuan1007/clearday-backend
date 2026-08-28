@@ -38,10 +38,19 @@ func (service *Service) List(ctx context.Context) ([]Reminder, error) {
 	}
 
 	sort.Slice(items, func(left, right int) bool {
-		if items[left].Date == items[right].Date {
-			return items[left].Title < items[right].Title
+		if items[left].Date != items[right].Date {
+			return items[left].Date < items[right].Date
 		}
-		return items[left].Date < items[right].Date
+
+		if startTime(items[left]) != startTime(items[right]) {
+			return startTime(items[left]) < startTime(items[right])
+		}
+
+		if items[left].EndTime != items[right].EndTime {
+			return items[left].EndTime < items[right].EndTime
+		}
+
+		return items[left].Title < items[right].Title
 	})
 
 	return items, nil
@@ -59,6 +68,9 @@ func (service *Service) Create(ctx context.Context, input Input) (Reminder, erro
 		Title:     input.Title,
 		Category:  input.Category,
 		Date:      input.Date,
+		Time:      input.Time,
+		StartTime: input.Time,
+		EndTime:   input.EndTime,
 		Notes:     input.Notes,
 		IsDone:    input.IsDone,
 		CreatedAt: now,
@@ -82,6 +94,9 @@ func (service *Service) Update(ctx context.Context, id string, input Input) (Rem
 	item.Title = input.Title
 	item.Category = input.Category
 	item.Date = input.Date
+	item.Time = input.Time
+	item.StartTime = input.Time
+	item.EndTime = input.EndTime
 	item.Notes = input.Notes
 	item.IsDone = input.IsDone
 	item.UpdatedAt = service.now().UTC()
@@ -90,6 +105,13 @@ func (service *Service) Update(ctx context.Context, id string, input Input) (Rem
 
 func (service *Service) Delete(ctx context.Context, id string) error {
 	return service.repository.Delete(ctx, id)
+}
+
+func startTime(reminder Reminder) string {
+	if reminder.Time != "" {
+		return reminder.Time
+	}
+	return reminder.StartTime
 }
 
 func newID() string {

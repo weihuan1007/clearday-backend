@@ -58,7 +58,14 @@ Production should use `clearday-reminders`. Development should use `clearday-rem
 - `GET /api/health`
 - `GET /api/reminders`
 - `POST /api/reminders`
-- `PUT /api/reminders/{id}`
+- `POST /api/reminders/{id}` (preferred update route for browser/CDN compatibility)
+- `PUT /api/reminders/{id}` (also supported)
 - `DELETE /api/reminders/{id}`
+
+Reminder date and time fields:
+
+- `date`: required, in `YYYY-MM-DD` format.
+- `time`: optional start time, in `HH:MM` format. The backend also accepts `startTime`, `StartTime`, `start_time`, or `start` for manually created records.
+- `endTime`: optional end time, in `HH:MM` format. The backend also accepts `EndTime`, `end_time`, or `end` for manually created records. If you set an end time, you must also set a start time, and the end must be later than the start.
 
 Set `CLEAR_DAY_API_TOKEN` in production. The browser will ask for the token once and store it locally.
