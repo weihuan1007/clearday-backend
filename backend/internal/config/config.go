@@ -10,14 +10,20 @@ import (
 )
 
 type Config struct {
-	Addr           string
-	APIToken       string
-	Store          string
-	JSONPath       string
-	DynamoDBTable  string
-	AWSRegion      string
-	StaticDir      string
-	ExposeAPIToken bool
+	Addr               string
+	APIToken           string
+	Store              string
+	JSONPath           string
+	DynamoDBTable      string
+	MoneyTable         string
+	AWSRegion          string
+	StaticDir          string
+	ExposeAPIToken     bool
+	CognitoUserPoolID  string
+	CognitoClientID    string
+	CognitoDomain      string
+	CognitoRedirectURI string
+	CognitoLogoutURI   string
 }
 
 type InvalidStoreError struct {
@@ -36,14 +42,20 @@ func Load() (Config, error) {
 	}
 
 	cfg := Config{
-		Addr:           getEnv("CLEAR_DAY_ADDR", ":8080"),
-		APIToken:       strings.TrimSpace(os.Getenv("CLEAR_DAY_API_TOKEN")),
-		Store:          strings.ToLower(getEnv("CLEAR_DAY_STORE", "json")),
-		JSONPath:       getEnv("CLEAR_DAY_JSON_PATH", filepath.Join("..", "data", "reminders.json")),
-		DynamoDBTable:  strings.TrimSpace(os.Getenv("CLEAR_DAY_DYNAMODB_TABLE")),
-		AWSRegion:      getEnv("AWS_REGION", getEnv("AWS_DEFAULT_REGION", "")),
-		StaticDir:      getEnv("CLEAR_DAY_STATIC_DIR", filepath.Join("..", "..", "frontend")),
-		ExposeAPIToken: getEnvBool("CLEAR_DAY_EXPOSE_API_TOKEN", false),
+		Addr:               getEnv("CLEAR_DAY_ADDR", ":8080"),
+		APIToken:           strings.TrimSpace(os.Getenv("CLEAR_DAY_API_TOKEN")),
+		Store:              strings.ToLower(getEnv("CLEAR_DAY_STORE", "json")),
+		JSONPath:           getEnv("CLEAR_DAY_JSON_PATH", filepath.Join("..", "data", "reminders.json")),
+		DynamoDBTable:      strings.TrimSpace(os.Getenv("CLEAR_DAY_DYNAMODB_TABLE")),
+		MoneyTable:         strings.TrimSpace(os.Getenv("CLEAR_DAY_MONEY_TABLE")),
+		AWSRegion:          getEnv("AWS_REGION", getEnv("AWS_DEFAULT_REGION", "")),
+		StaticDir:          getEnv("CLEAR_DAY_STATIC_DIR", filepath.Join("..", "..", "frontend")),
+		ExposeAPIToken:     getEnvBool("CLEAR_DAY_EXPOSE_API_TOKEN", false),
+		CognitoUserPoolID:  strings.TrimSpace(os.Getenv("CLEAR_DAY_COGNITO_USER_POOL_ID")),
+		CognitoClientID:    strings.TrimSpace(os.Getenv("CLEAR_DAY_COGNITO_CLIENT_ID")),
+		CognitoDomain:      strings.TrimRight(strings.TrimSpace(os.Getenv("CLEAR_DAY_COGNITO_DOMAIN")), "/"),
+		CognitoRedirectURI: strings.TrimSpace(os.Getenv("CLEAR_DAY_COGNITO_REDIRECT_URI")),
+		CognitoLogoutURI:   strings.TrimSpace(os.Getenv("CLEAR_DAY_COGNITO_LOGOUT_URI")),
 	}
 
 	if cfg.Store == "" {
@@ -56,6 +68,29 @@ func Load() (Config, error) {
 
 	if cfg.Store == "dynamodb" && cfg.AWSRegion == "" {
 		return cfg, errors.New("AWS_REGION is required when CLEAR_DAY_STORE=dynamodb")
+	}
+
+	cognitoValues := []string{
+		cfg.CognitoUserPoolID,
+		cfg.CognitoClientID,
+		cfg.CognitoDomain,
+		cfg.CognitoRedirectURI,
+		cfg.CognitoLogoutURI,
+	}
+	cognitoConfigured := 0
+	for _, value := range cognitoValues {
+		if value != "" {
+			cognitoConfigured++
+		}
+	}
+	if cognitoConfigured != 0 && cognitoConfigured != len(cognitoValues) {
+		return cfg, errors.New("all CLEAR_DAY_COGNITO_* settings are required when Cognito login is enabled")
+	}
+	if cognitoConfigured > 0 && cfg.AWSRegion == "" {
+		return cfg, errors.New("AWS_REGION is required when Cognito login is enabled")
+	}
+	if cfg.MoneyTable != "" && cognitoConfigured == 0 {
+		return cfg, errors.New("Cognito login is required when CLEAR_DAY_MONEY_TABLE is set")
 	}
 
 	return cfg, nil

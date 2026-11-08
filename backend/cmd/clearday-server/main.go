@@ -10,7 +10,9 @@ import (
 	"syscall"
 	"time"
 
+	"clearday/backend/internal/auth"
 	"clearday/backend/internal/config"
+	"clearday/backend/internal/money"
 	"clearday/backend/internal/reminders"
 	"clearday/backend/internal/server"
 	"clearday/backend/internal/storage/dynamodbstore"
@@ -36,13 +38,36 @@ func main() {
 	defer closeStore()
 
 	service := reminders.NewService(store)
-	router := server.NewRouter(server.Options{
-		APIHandler:     reminders.NewHandler(service, logger),
-		APIToken:       cfg.APIToken,
+	tokenVerifier, err := openTokenVerifier(cfg)
+	if err != nil {
+		logger.Error("configure authentication", "error", err)
+		os.Exit(1)
+	}
+	options := server.Options{
+		APIHandler: reminders.NewHandler(service, logger),
+		APIToken:   cfg.APIToken,
+		RuntimeAuth: server.RuntimeAuthConfig{
+			Domain:      cfg.CognitoDomain,
+			ClientID:    cfg.CognitoClientID,
+			RedirectURI: cfg.CognitoRedirectURI,
+			LogoutURI:   cfg.CognitoLogoutURI,
+		},
 		ExposeAPIToken: cfg.ExposeAPIToken,
 		StaticDir:      cfg.StaticDir,
 		Logger:         logger,
-	})
+	}
+	if tokenVerifier != nil {
+		options.TokenVerifier = tokenVerifier
+	}
+	if cfg.MoneyTable != "" {
+		awsCfg, err := awsconfig.LoadDefaultConfig(context.Background(), awsconfig.WithRegion(cfg.AWSRegion))
+		if err != nil {
+			logger.Error("configure money storage", "error", err)
+			os.Exit(1)
+		}
+		options.MoneyHandler = money.NewHandler(money.NewDynamoStore(cfg.MoneyTable, awsCfg), tokenVerifier.VerifySubject, logger)
+	}
+	router := server.NewRouter(options)
 
 	httpServer := &http.Server{
 		Addr:              cfg.Addr,
@@ -68,6 +93,18 @@ func main() {
 		logger.Error("shutdown failed", "error", err)
 		os.Exit(1)
 	}
+}
+
+func openTokenVerifier(cfg config.Config) (*auth.CognitoVerifier, error) {
+	if cfg.CognitoUserPoolID == "" {
+		return nil, nil
+	}
+
+	return auth.NewCognitoVerifier(auth.CognitoConfig{
+		Region:     cfg.AWSRegion,
+		UserPoolID: cfg.CognitoUserPoolID,
+		ClientID:   cfg.CognitoClientID,
+	})
 }
 
 func openStore(ctx context.Context, cfg config.Config) (reminders.Repository, func(), error) {

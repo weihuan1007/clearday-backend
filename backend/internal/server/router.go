@@ -1,6 +1,7 @@
 package server
 
 import (
+	"context"
 	"crypto/subtle"
 	"encoding/json"
 	"log/slog"
@@ -10,10 +11,24 @@ import (
 
 type Options struct {
 	APIHandler     http.Handler
+	MoneyHandler   http.Handler
 	APIToken       string
+	TokenVerifier  TokenVerifier
+	RuntimeAuth    RuntimeAuthConfig
 	ExposeAPIToken bool
 	StaticDir      string
 	Logger         *slog.Logger
+}
+
+type TokenVerifier interface {
+	Verify(context.Context, string) error
+}
+
+type RuntimeAuthConfig struct {
+	Domain      string `json:"domain"`
+	ClientID    string `json:"clientId"`
+	RedirectURI string `json:"redirectUri"`
+	LogoutURI   string `json:"logoutUri"`
 }
 
 func NewRouter(options Options) http.Handler {
@@ -27,8 +42,12 @@ func NewRouter(options Options) http.Handler {
 	})
 
 	mux.HandleFunc("/config.js", serveRuntimeConfig(options))
-	mux.Handle("/api/reminders", withCORS(withBearerAuth(options.APIToken, options.APIHandler)))
-	mux.Handle("/api/reminders/", withCORS(withBearerAuth(options.APIToken, options.APIHandler)))
+	mux.Handle("/api/reminders", withCORS(withBearerAuth(options.TokenVerifier, options.APIToken, options.APIHandler)))
+	mux.Handle("/api/reminders/", withCORS(withBearerAuth(options.TokenVerifier, options.APIToken, options.APIHandler)))
+	if options.MoneyHandler != nil {
+		mux.Handle("/api/transactions", withCORS(options.MoneyHandler))
+		mux.Handle("/api/transactions/", withCORS(options.MoneyHandler))
+	}
 
 	if options.StaticDir != "" {
 		mux.Handle("/", http.FileServer(http.Dir(options.StaticDir)))
@@ -39,12 +58,15 @@ func NewRouter(options Options) http.Handler {
 
 func serveRuntimeConfig(options Options) http.HandlerFunc {
 	type runtimeConfig struct {
-		APIBase  string `json:"apiBase"`
-		APIToken string `json:"apiToken,omitempty"`
+		APIBase  string             `json:"apiBase"`
+		Auth     *RuntimeAuthConfig `json:"auth,omitempty"`
+		APIToken string             `json:"apiToken,omitempty"`
 	}
 
 	cfg := runtimeConfig{APIBase: "/api"}
-	if options.ExposeAPIToken && options.APIToken != "" {
+	if options.TokenVerifier != nil {
+		cfg.Auth = &options.RuntimeAuth
+	} else if options.ExposeAPIToken && options.APIToken != "" {
 		cfg.APIToken = options.APIToken
 	}
 
@@ -85,18 +107,24 @@ func writeCORS(response http.ResponseWriter) {
 	response.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
 }
 
-func withBearerAuth(token string, next http.Handler) http.Handler {
-	if token == "" {
+func withBearerAuth(verifier TokenVerifier, token string, next http.Handler) http.Handler {
+	if verifier == nil && token == "" {
 		return next
 	}
 
 	return http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
 		header := request.Header.Get("Authorization")
 		actual, found := strings.CutPrefix(header, "Bearer ")
-		if !found || subtle.ConstantTimeCompare([]byte(actual), []byte(token)) != 1 {
+		authorized := found && actual != ""
+		if authorized && verifier != nil {
+			authorized = verifier.Verify(request.Context(), actual) == nil
+		} else if authorized {
+			authorized = subtle.ConstantTimeCompare([]byte(actual), []byte(token)) == 1
+		}
+		if !authorized {
 			response.Header().Set("Content-Type", "application/json")
 			response.WriteHeader(http.StatusUnauthorized)
-			_, _ = response.Write([]byte(`{"error":"API token required."}` + "\n"))
+			_, _ = response.Write([]byte(`{"error":"Sign in is required."}` + "\n"))
 			return
 		}
 		next.ServeHTTP(response, request)

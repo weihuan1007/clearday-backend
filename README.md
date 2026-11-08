@@ -2,10 +2,13 @@
 
 Go backend for the ClearDay reminder app.
 
+For the Money tab's DynamoDB, EC2, and frontend rollout, see the [Money deployment guide](money-aws-deploy-guide.md).
+
 ## Folders
 
 - `backend/`: Go API server and DynamoDB storage code
 - `deploy/aws/`: EC2 setup and backend update scripts
+- `deploy/terraform-cognito/`: isolated personal-login infrastructure
 - `deploy/scripts/`: local PowerShell deployment helper
 
 ## Production Environment
@@ -22,9 +25,13 @@ Example:
 CLEAR_DAY_ADDR=:8080
 CLEAR_DAY_STORE=dynamodb
 CLEAR_DAY_DYNAMODB_TABLE=clearday-reminders
-CLEAR_DAY_API_TOKEN=replace-with-a-long-random-token
 CLEAR_DAY_STATIC_DIR=/opt/clearday/app/web/static
 AWS_REGION=ap-southeast-1
+CLEAR_DAY_COGNITO_USER_POOL_ID=ap-southeast-1_example
+CLEAR_DAY_COGNITO_CLIENT_ID=example-client-id
+CLEAR_DAY_COGNITO_DOMAIN=https://example.auth.ap-southeast-1.amazoncognito.com
+CLEAR_DAY_COGNITO_REDIRECT_URI=https://example.cloudfront.net/
+CLEAR_DAY_COGNITO_LOGOUT_URI=https://example.cloudfront.net/
 ```
 
 Use an EC2 IAM instance profile for DynamoDB access. Do not store AWS access keys in the repo or in `/etc/clearday.env`.
@@ -48,7 +55,9 @@ CLEAR_DAY_EXPOSE_API_TOKEN=true
 
 Use `clearday-reminders-dev` for dummy data and testing. Keep real reminders in `clearday-reminders`.
 
-`CLEAR_DAY_EXPOSE_API_TOKEN=true` lets the local browser read the token from `/config.js`, so local development does not show the token popup. Keep this as a local convenience; exposing a token in browser JavaScript means the browser can read it.
+`CLEAR_DAY_EXPOSE_API_TOKEN=true` is a local-only convenience. Production uses Cognito and must not enable this setting.
+
+Follow `cognito-login-guide.md` to create the private login and migrate production safely.
 
 ## Manual Deploy
 

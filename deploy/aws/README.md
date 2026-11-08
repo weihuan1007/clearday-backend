@@ -29,9 +29,13 @@ Use:
 CLEAR_DAY_ADDR=:8080
 CLEAR_DAY_STORE=dynamodb
 CLEAR_DAY_DYNAMODB_TABLE=clearday-reminders
-CLEAR_DAY_API_TOKEN=replace-with-a-long-random-token
 CLEAR_DAY_STATIC_DIR=/opt/clearday/app/web/static
 AWS_REGION=ap-southeast-1
+CLEAR_DAY_COGNITO_USER_POOL_ID=ap-southeast-1_example
+CLEAR_DAY_COGNITO_CLIENT_ID=example-client-id
+CLEAR_DAY_COGNITO_DOMAIN=https://example.auth.ap-southeast-1.amazoncognito.com
+CLEAR_DAY_COGNITO_REDIRECT_URI=https://example.cloudfront.net/
+CLEAR_DAY_COGNITO_LOGOUT_URI=https://example.cloudfront.net/
 ```
 
 Use an EC2 IAM instance profile for DynamoDB access. Do not put AWS keys in `/etc/clearday.env`.

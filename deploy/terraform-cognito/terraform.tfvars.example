@@ -1,0 +1,5 @@
+aws_region     = "ap-southeast-1"
+application_url = "https://YOUR_CLOUDFRONT_DOMAIN.cloudfront.net/"
+
+# Leave this empty unless the generated prefix is unavailable.
+cognito_domain_prefix = ""

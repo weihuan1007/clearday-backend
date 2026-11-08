@@ -31,6 +31,7 @@ coverage.html
 .terraform/
 *.tfstate
 *.tfstate.*
+*.tfplan
 terraform.tfvars
 *.auto.tfvars
 
