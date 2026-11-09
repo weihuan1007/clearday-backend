@@ -2,7 +2,7 @@
 
 Deploy in this order. Create the DynamoDB table and grant EC2 access, then update the Go API on EC2, then publish the frontend to S3 and invalidate CloudFront.
 
-Use the existing ClearDay AWS account, region, CloudFront distribution, frontend bucket, EC2 instance, and Cognito app client. In the examples the region is Singapore (`ap-southeast-1`). Use the region your installation already uses. For Cognito setup, see [the ClearDay login guide](cognito-login-guide.md).
+Use the existing ClearDay AWS account, region, CloudFront distribution, frontend bucket, and EC2 instance. In the examples the region is Singapore (`ap-southeast-1`). Use the region your installation already uses. A single-person installation can use a private Money key. Cognito is also supported. [ClearDay login guide](cognito-login-guide.md)
 
 ## 1. Create the transactions table
 
@@ -54,11 +54,21 @@ terraform output -raw money_table_name
 ## 2. Configure and deploy the EC2 backend
 
 1. Connect to the existing instance using **EC2 → Instances → Connect → Session Manager** or your usual SSH connection.
-2. Edit the service environment with `sudoedit /etc/clearday.env`. Add the line below using your actual table name. Keep the existing reminder storage and Cognito settings.
+2. Edit the service environment with `sudoedit /etc/clearday.env`. Add the line below using your actual table name. Keep the existing reminder settings.
 
    ```dotenv
    CLEAR_DAY_MONEY_TABLE=clearday-money-transactions
    ```
+
+   For single-person access, generate a private key on EC2. Run this in Session Manager. It saves a new key only if one is missing.
+
+   ```bash
+   if ! sudo grep -q '^CLEAR_DAY_MONEY_TOKEN=' /etc/clearday.env; then
+     printf '\nCLEAR_DAY_MONEY_TOKEN=%s\n' "$(openssl rand -hex 32)" | sudo tee -a /etc/clearday.env >/dev/null
+   fi
+   ```
+
+   The key is separate from the reminder API token. Keep it on EC2 and in your own password manager.
 
 3. In PowerShell, open the **backend** checkout and review the working tree.
 
@@ -114,7 +124,7 @@ sudo bash "$release/deploy/aws/update-backend.sh" "$release"
    ```
 
 2. Open **Actions → Deploy Frontend** in the frontend GitHub repository. Wait for the run for that commit to succeed. It uploads the assets and invalidates CloudFront.
-3. Verify the workflow still uses `AWS_FRONTEND_BUCKET` and `CLOUDFRONT_DISTRIBUTION_ID` for your existing deployment, `FRONTEND_API_BASE=/api`, and your existing `COGNITO_DOMAIN`, `COGNITO_CLIENT_ID`, `COGNITO_REDIRECT_URI`, and `COGNITO_LOGOUT_URI`. The redirect and logout URLs are the existing site root with its trailing slash.
+3. Verify the workflow uses `AWS_FRONTEND_BUCKET` and `CLOUDFRONT_DISTRIBUTION_ID` for your existing deployment and `FRONTEND_API_BASE=/api`. If you use Cognito, also supply `COGNITO_DOMAIN`, `COGNITO_CLIENT_ID`, `COGNITO_REDIRECT_URI`, and `COGNITO_LOGOUT_URI`. The redirect and logout URLs are the existing site root with its trailing slash.
 
 ### Manual S3 upload
 
@@ -137,12 +147,16 @@ sudo bash "$release/deploy/aws/update-backend.sh" "$release"
 
 ## 4. Verify the deployed app
 
-1. Open your current ClearDay HTTPS link, sign in, and select **Money**. You can bookmark the link with `#money` at the end.
+1. Open your current ClearDay HTTPS link and select **Money**. For personal access, run the command below in your private EC2 terminal, then paste the result into **Private Money key** and choose **Unlock Money**. If you configured Cognito, use the regular sign-in screen. You can bookmark the link with `#money` at the end.
+
+   ```bash
+   sudo sed -n 's/^CLEAR_DAY_MONEY_TOKEN=//p' /etc/clearday.env
+   ```
 2. Add a test income of RM10.00 and a test expense of RM2.35 in the same month. Check that **Net** shows RM7.65. Reload and confirm both persist. Edit one, verify the total changes, then delete both.
 3. If another test Cognito account is available, sign in with it in a separate browser session and check that it has its own empty ledger.
 4. Open **Calendar** and **Reminders** and confirm your reminder list still loads.
 
-If Money fails to load, check the request to `/api/transactions` in the browser's Network tab. A `404` usually means the new backend or `/api/*` routing is missing, or `CLEAR_DAY_MONEY_TABLE` is unset. A `401` after sign-in indicates an access token or Cognito configuration problem. For a `500`, check the table name, region, and EC2 IAM permissions with `sudo journalctl -u clearday -n 50 --no-pager`.
+If Money fails to load, check the request to `/api/transactions` in the browser's Network tab. A `404` usually means the backend, `/api/*` routing, or Money settings are missing. A `401` means the request lacked a valid Money key or Cognito access token. For a `500`, check the table name, region, and EC2 IAM permissions with `sudo journalctl -u clearday -n 50 --no-pager`.
 
 ## 5. Move existing Money Flow records
 
@@ -159,4 +173,4 @@ Start the Go backend from `D:\reminder-app\repos\backend\backend` with `go run .
 - Frontend `money-model.js` handles integer sen, categories, totals, and Money Flow backup conversion.
 - Frontend `money-repository.js` handles cloud requests and localhost storage.
 - Frontend `money-page.js` and `money.css` handle forms, filters, the monthly view, and imports.
-- Backend `backend/internal/money/` contains transaction validation, the HTTP API, and DynamoDB access. The API verifies the Cognito access token and derives the owner on the server for every operation.
+- Backend `backend/internal/money/` contains transaction validation, the HTTP API, and DynamoDB access. The API verifies the private key or Cognito token and assigns the owner on the server for every operation.

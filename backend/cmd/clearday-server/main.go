@@ -59,14 +59,7 @@ func main() {
 	if tokenVerifier != nil {
 		options.TokenVerifier = tokenVerifier
 	}
-	if cfg.MoneyTable != "" {
-		awsCfg, err := awsconfig.LoadDefaultConfig(context.Background(), awsconfig.WithRegion(cfg.AWSRegion))
-		if err != nil {
-			logger.Error("configure money storage", "error", err)
-			os.Exit(1)
-		}
-		options.MoneyHandler = money.NewHandler(money.NewDynamoStore(cfg.MoneyTable, awsCfg), tokenVerifier.VerifySubject, logger)
-	}
+	options.MoneyHandler = openMoneyHandler(context.Background(), cfg, tokenVerifier, logger)
 	router := server.NewRouter(options)
 
 	httpServer := &http.Server{
@@ -105,6 +98,30 @@ func openTokenVerifier(cfg config.Config) (*auth.CognitoVerifier, error) {
 		UserPoolID: cfg.CognitoUserPoolID,
 		ClientID:   cfg.CognitoClientID,
 	})
+}
+
+func openMoneyHandler(ctx context.Context, cfg config.Config, cognito *auth.CognitoVerifier, logger *slog.Logger) http.Handler {
+	if cfg.MoneyTable == "" {
+		return nil
+	}
+
+	var verify func(context.Context, string) (string, error)
+	if cognito != nil {
+		verify = cognito.VerifySubject
+	} else if cfg.MoneyToken != cfg.APIToken {
+		verify = auth.NewPersonalMoneyVerifier(cfg.MoneyToken)
+	}
+	if verify == nil || cfg.AWSRegion == "" {
+		// A missing Money setting should keep the ledger closed and let reminders run.
+		logger.Warn("Money API disabled", "reason", "configure AWS_REGION and Cognito or a separate 64-character hexadecimal CLEAR_DAY_MONEY_TOKEN")
+		return nil
+	}
+	awsCfg, err := awsconfig.LoadDefaultConfig(ctx, awsconfig.WithRegion(cfg.AWSRegion))
+	if err != nil {
+		logger.Error("configure money storage", "error", err)
+		return nil
+	}
+	return money.NewHandler(money.NewDynamoStore(cfg.MoneyTable, awsCfg), verify, logger)
 }
 
 func openStore(ctx context.Context, cfg config.Config) (reminders.Repository, func(), error) {

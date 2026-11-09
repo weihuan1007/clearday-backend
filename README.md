@@ -55,7 +55,7 @@ CLEAR_DAY_EXPOSE_API_TOKEN=true
 
 Use `clearday-reminders-dev` for dummy data and testing. Keep real reminders in `clearday-reminders`.
 
-`CLEAR_DAY_EXPOSE_API_TOKEN=true` is a local-only convenience. Production uses Cognito and must not enable this setting.
+`CLEAR_DAY_EXPOSE_API_TOKEN=true` is a local-only convenience. Keep it off in production. The Money API accepts the separate private Money key or a verified Cognito access token.
 
 Follow `cognito-login-guide.md` to create the private login and migrate production safely.
 

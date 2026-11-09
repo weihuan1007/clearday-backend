@@ -16,6 +16,7 @@ type Config struct {
 	JSONPath           string
 	DynamoDBTable      string
 	MoneyTable         string
+	MoneyToken         string
 	AWSRegion          string
 	StaticDir          string
 	ExposeAPIToken     bool
@@ -48,6 +49,7 @@ func Load() (Config, error) {
 		JSONPath:           getEnv("CLEAR_DAY_JSON_PATH", filepath.Join("..", "data", "reminders.json")),
 		DynamoDBTable:      strings.TrimSpace(os.Getenv("CLEAR_DAY_DYNAMODB_TABLE")),
 		MoneyTable:         strings.TrimSpace(os.Getenv("CLEAR_DAY_MONEY_TABLE")),
+		MoneyToken:         strings.TrimSpace(os.Getenv("CLEAR_DAY_MONEY_TOKEN")),
 		AWSRegion:          getEnv("AWS_REGION", getEnv("AWS_DEFAULT_REGION", "")),
 		StaticDir:          getEnv("CLEAR_DAY_STATIC_DIR", filepath.Join("..", "..", "frontend")),
 		ExposeAPIToken:     getEnvBool("CLEAR_DAY_EXPOSE_API_TOKEN", false),
@@ -89,10 +91,6 @@ func Load() (Config, error) {
 	if cognitoConfigured > 0 && cfg.AWSRegion == "" {
 		return cfg, errors.New("AWS_REGION is required when Cognito login is enabled")
 	}
-	if cfg.MoneyTable != "" && cognitoConfigured == 0 {
-		return cfg, errors.New("Cognito login is required when CLEAR_DAY_MONEY_TABLE is set")
-	}
-
 	return cfg, nil
 }
 
