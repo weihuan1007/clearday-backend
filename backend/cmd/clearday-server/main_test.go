@@ -31,9 +31,10 @@ func TestPersonalMoneyRouteRequiresSeparateKey(t *testing.T) {
 				APIToken:   test.reminderKey,
 				AWSRegion:  "ap-southeast-1",
 			}
+			moneyHandler, _ := openMoneyHandler(context.Background(), cfg, nil, logger)
 			router := server.NewRouter(server.Options{
 				APIHandler:   http.NotFoundHandler(),
-				MoneyHandler: openMoneyHandler(context.Background(), cfg, nil, logger),
+				MoneyHandler: moneyHandler,
 				APIToken:     cfg.APIToken,
 			})
 			for _, token := range []string{"", test.reminderKey} {

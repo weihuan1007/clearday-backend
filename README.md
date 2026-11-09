@@ -4,6 +4,8 @@ Go backend for the ClearDay reminder app.
 
 For the Money tab's DynamoDB, EC2, and frontend rollout, see the [Money deployment guide](money-aws-deploy-guide.md).
 
+For personal transaction capture in Telegram, see the [Telegram Money guide](telegram-money-guide.md).
+
 ## Folders
 
 - `backend/`: Go API server and DynamoDB storage code

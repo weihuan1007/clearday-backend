@@ -10,14 +10,15 @@ import (
 )
 
 type Options struct {
-	APIHandler     http.Handler
-	MoneyHandler   http.Handler
-	APIToken       string
-	TokenVerifier  TokenVerifier
-	RuntimeAuth    RuntimeAuthConfig
-	ExposeAPIToken bool
-	StaticDir      string
-	Logger         *slog.Logger
+	APIHandler          http.Handler
+	MoneyHandler        http.Handler
+	TelegramPairHandler http.Handler
+	APIToken            string
+	TokenVerifier       TokenVerifier
+	RuntimeAuth         RuntimeAuthConfig
+	ExposeAPIToken      bool
+	StaticDir           string
+	Logger              *slog.Logger
 }
 
 type TokenVerifier interface {
@@ -47,6 +48,9 @@ func NewRouter(options Options) http.Handler {
 	if options.MoneyHandler != nil {
 		mux.Handle("/api/transactions", withCORS(options.MoneyHandler))
 		mux.Handle("/api/transactions/", withCORS(options.MoneyHandler))
+	}
+	if options.TelegramPairHandler != nil {
+		mux.Handle("/api/integrations/telegram/pair", withCORS(options.TelegramPairHandler))
 	}
 
 	if options.StaticDir != "" {

@@ -17,6 +17,8 @@ type Config struct {
 	DynamoDBTable      string
 	MoneyTable         string
 	MoneyToken         string
+	TelegramToken      string
+	TelegramOwner      string
 	AWSRegion          string
 	StaticDir          string
 	ExposeAPIToken     bool
@@ -50,6 +52,8 @@ func Load() (Config, error) {
 		DynamoDBTable:      strings.TrimSpace(os.Getenv("CLEAR_DAY_DYNAMODB_TABLE")),
 		MoneyTable:         strings.TrimSpace(os.Getenv("CLEAR_DAY_MONEY_TABLE")),
 		MoneyToken:         strings.TrimSpace(os.Getenv("CLEAR_DAY_MONEY_TOKEN")),
+		TelegramToken:      strings.TrimSpace(os.Getenv("CLEAR_DAY_TELEGRAM_BOT_TOKEN")),
+		TelegramOwner:      strings.TrimSpace(os.Getenv("CLEAR_DAY_TELEGRAM_OWNER")),
 		AWSRegion:          getEnv("AWS_REGION", getEnv("AWS_DEFAULT_REGION", "")),
 		StaticDir:          getEnv("CLEAR_DAY_STATIC_DIR", filepath.Join("..", "..", "frontend")),
 		ExposeAPIToken:     getEnvBool("CLEAR_DAY_EXPOSE_API_TOKEN", false),

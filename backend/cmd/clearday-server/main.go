@@ -59,7 +59,14 @@ func main() {
 	if tokenVerifier != nil {
 		options.TokenVerifier = tokenVerifier
 	}
-	options.MoneyHandler = openMoneyHandler(context.Background(), cfg, tokenVerifier, logger)
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+	moneyHandler, moneyStore := openMoneyHandler(ctx, cfg, tokenVerifier, logger)
+	options.MoneyHandler = moneyHandler
+	if bot := openTelegramBot(cfg, moneyStore, tokenVerifier, logger); bot != nil {
+		options.TelegramPairHandler = bot.PairHandler(tokenVerifier.VerifySubject)
+		go bot.Run(ctx)
+	}
 	router := server.NewRouter(options)
 
 	httpServer := &http.Server{
@@ -76,8 +83,6 @@ func main() {
 		}
 	}()
 
-	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
-	defer stop()
 	<-ctx.Done()
 
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
@@ -100,9 +105,9 @@ func openTokenVerifier(cfg config.Config) (*auth.CognitoVerifier, error) {
 	})
 }
 
-func openMoneyHandler(ctx context.Context, cfg config.Config, cognito *auth.CognitoVerifier, logger *slog.Logger) http.Handler {
+func openMoneyHandler(ctx context.Context, cfg config.Config, cognito *auth.CognitoVerifier, logger *slog.Logger) (http.Handler, *money.DynamoStore) {
 	if cfg.MoneyTable == "" {
-		return nil
+		return nil, nil
 	}
 
 	var verify func(context.Context, string) (string, error)
@@ -114,14 +119,15 @@ func openMoneyHandler(ctx context.Context, cfg config.Config, cognito *auth.Cogn
 	if verify == nil || cfg.AWSRegion == "" {
 		// A missing Money setting should keep the ledger closed and let reminders run.
 		logger.Warn("Money API disabled", "reason", "configure AWS_REGION and Cognito or a separate 64-character hexadecimal CLEAR_DAY_MONEY_TOKEN")
-		return nil
+		return nil, nil
 	}
 	awsCfg, err := awsconfig.LoadDefaultConfig(ctx, awsconfig.WithRegion(cfg.AWSRegion))
 	if err != nil {
 		logger.Error("configure money storage", "error", err)
-		return nil
+		return nil, nil
 	}
-	return money.NewHandler(money.NewDynamoStore(cfg.MoneyTable, awsCfg), verify, logger)
+	store := money.NewDynamoStore(cfg.MoneyTable, awsCfg)
+	return money.NewHandler(store, verify, logger), store
 }
 
 func openStore(ctx context.Context, cfg config.Config) (reminders.Repository, func(), error) {
