@@ -13,7 +13,9 @@ Telegram reads messages from a private chat with your bot. ClearDay connects tha
    ```
 
    Find `sub` under your user’s attributes in the ClearDay Cognito user pool. Use a new bot dedicated to ClearDay. Keep its token in the EC2 environment file and use the existing instance role’s DynamoDB `Query` and `PutItem` permissions.
-3. Sign in to ClearDay, open **Money**, and choose **Connect Telegram → Open Telegram → Start**. The link expires after 10 minutes and works once. The bot confirms when the chat is connected. Generate a new link to replace the linked chat.
+3. Sign in to ClearDay, open **Money**, and choose **Connect Telegram → Open Telegram → Start**. The link expires after 10 minutes and works once. The bot confirms when the chat is connected.
+
+ClearDay checks the saved connection each time you sign in. **Open Telegram** goes directly to the bot chat. Use **Link another chat** if you change Telegram accounts.
 
 ## Send a transaction
 

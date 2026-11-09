@@ -114,17 +114,33 @@ func TestTelegramPollingPairsAndRecordsOnlyTheOwnersChat(t *testing.T) {
 			return "", errors.New("invalid token")
 		}
 	})
-	pair := func(token string) *httptest.ResponseRecorder {
-		request := httptest.NewRequest(http.MethodPost, "/api/integrations/telegram/pair", nil)
+	requestPair := func(method, token string) *httptest.ResponseRecorder {
+		request := httptest.NewRequest(method, "/api/integrations/telegram/pair", nil)
 		request.Header.Set("Authorization", "Bearer "+token)
 		response := httptest.NewRecorder()
 		handler.ServeHTTP(response, request)
 		return response
 	}
-	if pair("").Code != http.StatusUnauthorized || pair("another-account").Code != http.StatusForbidden {
-		t.Fatal("unauthorized account obtained a pairing link")
+	for _, method := range []string{http.MethodGet, http.MethodPost} {
+		if requestPair(method, "").Code != http.StatusUnauthorized || requestPair(method, "another-account").Code != http.StatusForbidden {
+			t.Fatalf("unauthorized account accessed Telegram pairing via %s", method)
+		}
 	}
-	response := pair("owner")
+	status := func(connected bool, wantURL string) {
+		t.Helper()
+		response := requestPair(http.MethodGet, "owner")
+		var result struct {
+			Connected *bool  `json:"connected"`
+			URL       string `json:"url"`
+		}
+		if response.Code != http.StatusOK || response.Header().Get("Cache-Control") != "private, no-store" ||
+			json.Unmarshal(response.Body.Bytes(), &result) != nil ||
+			result.Connected == nil || *result.Connected != connected || result.URL != wantURL {
+			t.Fatalf("unexpected Telegram status: %d %s", response.Code, response.Body)
+		}
+	}
+	status(false, "")
+	response := requestPair(http.MethodPost, "owner")
 	var link struct {
 		URL string `json:"url"`
 	}
@@ -140,6 +156,7 @@ func TestTelegramPollingPairsAndRecordsOnlyTheOwnersChat(t *testing.T) {
 	if code == "" {
 		t.Fatal("link had no pairing code")
 	}
+	status(false, "")
 
 	sentAt := time.Date(2026, 11, 9, 16, 5, 0, 0, time.UTC).Unix()
 	add := func(id, chat int64, chatType, text string) {
@@ -170,6 +187,7 @@ func TestTelegramPollingPairsAndRecordsOnlyTheOwnersChat(t *testing.T) {
 	if ledger.chat != 123 || len(ledger.saved) != 2 {
 		t.Fatalf("got chat %d and %d saved transactions", ledger.chat, len(ledger.saved))
 	}
+	status(true, "https://t.me/clearday_test_bot")
 	first, second := ledger.saved[0], ledger.saved[1]
 	if first.AmountSen != 2000 || first.Category != "Food" || first.Note != "dinner" || first.Date != "2026-11-10" ||
 		second.Type != "income" || second.AmountSen != 120000 || second.Date != "2026-11-09" {

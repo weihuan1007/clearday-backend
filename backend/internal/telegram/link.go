@@ -16,13 +16,13 @@ const linkLifetime = 10 * time.Minute
 
 var usernamePattern = regexp.MustCompile(`^[A-Za-z0-9_]{5,32}$`)
 
-// PairHandler issues an expiring, single-use link only to the configured
-// Cognito owner. The browser never receives the Telegram bot token.
+// PairHandler lets the configured Cognito owner read the saved connection or
+// create an expiring setup link. The browser never receives the bot token.
 func (bot *Bot) PairHandler(verify func(context.Context, string) (string, error)) http.Handler {
 	return http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
 		response.Header().Set("Cache-Control", "private, no-store")
-		if request.Method != http.MethodPost {
-			response.Header().Set("Allow", "POST")
+		if request.Method != http.MethodGet && request.Method != http.MethodPost {
+			response.Header().Set("Allow", "GET, POST")
 			http.Error(response, "Method not allowed.", http.StatusMethodNotAllowed)
 			return
 		}
@@ -43,15 +43,35 @@ func (bot *Bot) PairHandler(verify func(context.Context, string) (string, error)
 
 		ctx, cancel := context.WithTimeout(request.Context(), 8*time.Second)
 		defer cancel()
+		if request.Method == http.MethodGet {
+			chat, err := bot.ledger.LinkedTelegramChat(ctx, owner)
+			if err != nil {
+				http.Error(response, "Could not check the Telegram connection.", http.StatusServiceUnavailable)
+				return
+			}
+			if chat <= 0 {
+				writeLinkResponse(response, map[string]bool{"connected": false})
+				return
+			}
+		}
+
 		user, err := bot.client.getMe(ctx)
 		if err != nil || !user.IsBot || !usernamePattern.MatchString(user.Username) {
 			http.Error(response, "Telegram is temporarily unavailable.", http.StatusServiceUnavailable)
 			return
 		}
-		code := bot.newLink()
-		response.Header().Set("Content-Type", "application/json; charset=utf-8")
-		_ = json.NewEncoder(response).Encode(map[string]string{"url": "https://t.me/" + user.Username + "?start=" + code})
+		chatURL := "https://t.me/" + user.Username
+		if request.Method == http.MethodGet {
+			writeLinkResponse(response, map[string]any{"connected": true, "url": chatURL})
+			return
+		}
+		writeLinkResponse(response, map[string]string{"url": chatURL + "?start=" + bot.newLink()})
 	})
+}
+
+func writeLinkResponse(response http.ResponseWriter, payload any) {
+	response.Header().Set("Content-Type", "application/json; charset=utf-8")
+	_ = json.NewEncoder(response).Encode(payload)
 }
 
 func (bot *Bot) newLink() string {
