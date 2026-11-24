@@ -18,6 +18,59 @@ var chatCategories = map[string][]string{
 	"transfer": {"Top Up", "Bank Move", "Card Payment", "Savings", "Other"},
 }
 
+// ChatCategories returns the same choices used to parse new chat entries.
+func ChatCategories(kind string) []string {
+	return append([]string(nil), chatCategories[kind]...)
+}
+
+var editAmountPattern = regexp.MustCompile(`(?i)^(?:RM *)?((?:[0-9]{1,3}(?:,[0-9]{3})+|[0-9]{1,9})(?:\.[0-9]{1,2})?)$`)
+
+// EditChatTransaction validates a single field using the ledger's normal rules.
+// The caller saves it conditionally against the original transaction.
+func EditChatTransaction(entry Transaction, field, value string, sentAt time.Time) (Transaction, error) {
+	value = strings.TrimSpace(value)
+	switch field {
+	case "amount":
+		match := editAmountPattern.FindStringSubmatch(value)
+		if match == nil {
+			return entry, errors.New("enter an amount like 20 or RM20.50")
+		}
+		amount, err := chatAmountSen(match[1])
+		if err != nil {
+			return entry, err
+		}
+		entry.AmountSen = amount
+	case "category":
+		entry.Category = value
+	case "account":
+		entry.Account = value
+	case "note":
+		if value == "-" {
+			value = ""
+		}
+		entry.Note = value
+	case "date":
+		parsed, err := ParseChatEntry("RM1 Other @"+strings.TrimPrefix(value, "@"), sentAt, entry.ID, entry.Source)
+		if err != nil {
+			return entry, err
+		}
+		entry.Date = parsed.Date
+	case "type":
+		entry.Type = strings.ToLower(value)
+		// A category from the previous type may not be meaningful for this one.
+		validCategory := false
+		for _, category := range chatCategories[entry.Type] {
+			validCategory = validCategory || entry.Category == category
+		}
+		if !validCategory {
+			entry.Category = "Other"
+		}
+	default:
+		return entry, errors.New("choose a field from the transaction card")
+	}
+	return entry, entry.validate()
+}
+
 // ParseChatEntry uses the original send time, so delivery delays cannot shift
 // a transaction into the next day. An explicit @date takes precedence.
 func ParseChatEntry(text string, sentAt time.Time, id, source string) (Transaction, error) {

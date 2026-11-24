@@ -20,6 +20,52 @@ type memoryLedger struct {
 	chat  int64
 	saved []money.Transaction
 	seen  map[string]bool
+	edit  money.TelegramEdit
+}
+
+func (store *memoryLedger) TelegramTransaction(_ context.Context, owner, id string) (money.Transaction, bool, error) {
+	if owner != store.owner {
+		return money.Transaction{}, false, errors.New("unexpected owner")
+	}
+	for _, entry := range store.saved {
+		if entry.ID == id {
+			return entry, true, nil
+		}
+	}
+	return money.Transaction{}, false, nil
+}
+
+func (store *memoryLedger) ChangeTelegramTransaction(_ context.Context, owner string, before money.Transaction, after *money.Transaction) (bool, error) {
+	if owner != store.owner {
+		return false, errors.New("unexpected owner")
+	}
+	for index, entry := range store.saved {
+		if entry.ID != before.ID || entry != before {
+			continue
+		}
+		if after == nil {
+			store.saved = append(store.saved[:index], store.saved[index+1:]...)
+		} else {
+			store.saved[index] = *after
+		}
+		return true, nil
+	}
+	return false, nil
+}
+
+func (store *memoryLedger) PendingTelegramEdit(_ context.Context, owner string, chat int64) (money.TelegramEdit, error) {
+	if owner != store.owner || chat != store.chat {
+		return money.TelegramEdit{}, errors.New("unexpected owner or chat")
+	}
+	return store.edit, nil
+}
+
+func (store *memoryLedger) SaveTelegramEdit(_ context.Context, owner string, chat int64, edit money.TelegramEdit) error {
+	if owner != store.owner || chat != store.chat {
+		return errors.New("unexpected owner or chat")
+	}
+	store.edit = edit
+	return nil
 }
 
 func (store *memoryLedger) LinkedTelegramChat(_ context.Context, owner string) (int64, error) {

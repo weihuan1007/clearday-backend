@@ -2,9 +2,7 @@ package telegram
 
 import (
 	"context"
-	"crypto/sha256"
 	"errors"
-	"fmt"
 	"log/slog"
 	"net/http"
 	"regexp"
@@ -26,6 +24,10 @@ type ledger interface {
 	LinkedTelegramChat(context.Context, string) (int64, error)
 	LinkTelegramChat(context.Context, string, int64) error
 	RecordTelegramTransaction(context.Context, string, money.Transaction) (bool, error)
+	TelegramTransaction(context.Context, string, string) (money.Transaction, bool, error)
+	ChangeTelegramTransaction(context.Context, string, money.Transaction, *money.Transaction) (bool, error)
+	PendingTelegramEdit(context.Context, string, int64) (money.TelegramEdit, error)
+	SaveTelegramEdit(context.Context, string, int64, money.TelegramEdit) error
 }
 
 type Bot struct {
@@ -86,7 +88,7 @@ func (bot *Bot) poll(ctx context.Context, botID int64) {
 			if update.ID < offset {
 				continue
 			}
-			if err := bot.handle(ctx, botID, update.Message); err != nil {
+			if err := bot.handleUpdate(ctx, botID, update); err != nil {
 				bot.retry(ctx, err)
 				break
 			}
@@ -95,6 +97,21 @@ func (bot *Bot) poll(ctx context.Context, botID int64) {
 			lastUpdate = time.Now()
 		}
 	}
+}
+
+func (bot *Bot) handleUpdate(ctx context.Context, botID int64, event update) error {
+	if event.Callback != nil {
+		// Callbacks are short-lived. A storage failure leaves the buttons usable
+		// so the owner can retry without blocking later transaction messages.
+		if err := bot.handleCallback(ctx, botID, *event.Callback); err != nil {
+			bot.loggerError("Telegram card action failed", err)
+			if msg := event.Callback.Message; msg != nil && event.Callback.From.ID == msg.Chat.ID && msg.Chat.Type == "private" {
+				bot.reply(ctx, msg.Chat.ID, "Could not complete that action. Tap Refresh on the card to check the saved entry, then try again.")
+			}
+		}
+		return nil
+	}
+	return bot.handle(ctx, botID, event.Message)
 }
 
 func (bot *Bot) handle(ctx context.Context, botID int64, message message) error {
@@ -123,6 +140,16 @@ func (bot *Bot) handle(ctx context.Context, botID int64, message message) error 
 	if chat != message.Chat.ID {
 		return nil
 	}
+	if text == "/cancel" {
+		if err := bot.ledger.SaveTelegramEdit(ctx, bot.owner, chat, money.TelegramEdit{}); err != nil {
+			return err
+		}
+		bot.reply(ctx, chat, "Edit canceled. You can send a transaction or use the buttons on a card.")
+		return nil
+	}
+	if message.ReplyTo != nil && message.ReplyTo.From.ID == botID {
+		return bot.handleEditReply(ctx, botID, message)
+	}
 	if strings.HasPrefix(text, "/") {
 		bot.reply(ctx, chat, usage)
 		return nil
@@ -131,8 +158,7 @@ func (bot *Bot) handle(ctx context.Context, botID int64, message message) error 
 		return nil
 	}
 
-	digest := sha256.Sum256([]byte(fmt.Sprintf("%d:%d:%d", botID, chat, message.ID)))
-	id := fmt.Sprintf("tg_%x", digest)
+	id := transactionID(botID, chat, message.ID)
 	transaction, err := money.ParseChatEntry(text, time.Unix(message.Date, 0), id, "telegram")
 	if err != nil {
 		bot.reply(ctx, chat, "Could not save the entry. "+err.Error()+". "+usage)
@@ -143,10 +169,19 @@ func (bot *Bot) handle(ctx context.Context, botID int64, message message) error 
 		return errors.New("could not save the Telegram transaction")
 	}
 	if created {
-		bot.reply(ctx, chat, fmt.Sprintf("Saved %s of RM%d.%02d · %s · %s.", transaction.Type,
-			transaction.AmountSen/100, transaction.AmountSen%100, transaction.Category, transaction.Date))
+		// A failed receipt must never retry the write or create another entry.
+		if err := bot.client.sendCard(ctx, chat, cardText(transaction, "Saved"), cardKeyboard(message.ID)); err != nil {
+			bot.loggerError("Telegram card delivery failed", err)
+			bot.reply(ctx, chat, "Your transaction was saved, but its card could not be sent. Check Money before sending it again.")
+		}
 	}
 	return nil
+}
+
+func (bot *Bot) loggerError(text string, err error) {
+	if bot.logger != nil {
+		bot.logger.Warn(text, "error", err)
+	}
 }
 
 func (bot *Bot) reply(ctx context.Context, chat int64, text string) {

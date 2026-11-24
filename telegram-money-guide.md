@@ -26,7 +26,20 @@ ClearDay checks the saved connection each time you sign in. **Open Telegram** go
 | `income RM1,200.00 Salary @2026-11-09` | RM1,200 of income on the date you specify |
 | `transfer RM100 Savings` | An RM100 transfer in Savings |
 
-Use a category from the Money tab. Without an explicit date, ClearDay uses when you sent the message in Kuala Lumpur time. The default account is **Unspecified**, and you can assign it from the transaction’s **Edit** form. After the bot confirms the save, use **Money → Refresh** to see the entry. Select **Period → All months** to include older transactions.
+Use a category from the Money tab. Without an explicit date, ClearDay uses when you sent the message in Kuala Lumpur time. The default account is **Unspecified**. Select **Period → All months** to include older transactions.
+
+## Edit or delete from the Telegram card
+
+After a transaction is saved, the bot sends a receipt with its amount, category, date, account, note, and action buttons.
+
+- **Amount**, **Date**, and **Note** ask you to reply with a new value. Enter an amount such as `25.50`, a date such as `2026-11-24`, or `-` to clear a note. Reply prompts expire after 15 minutes. Send `/cancel` to cancel.
+- **Category**, **Account**, and **Type** show choices. Category and account also accept custom text. Changing type sets an incompatible category to **Other**, which you can then change.
+- **Delete** asks for confirmation before removing the saved transaction.
+- **Refresh** updates an older card with the current saved transaction. If another edit has changed it, review the latest card before applying a change.
+
+The bot edits the same ledger as the Money page. The visible Money page checks for changes every three seconds and when you return to it. Automatic updates pause during form editing and while the tab is hidden. Filters stay selected, so an entry outside the selected period or search can be saved without appearing in the current list.
+
+New transactions receive cards after this backend update is deployed. Existing text-only receipts keep their original format.
 
 ## Troubleshooting
 
