@@ -3,10 +3,13 @@ package telegram
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 
 	"clearday/backend/internal/money"
 )
+
+const editReplyInstructions = "Reply to this message within 15 minutes. Send /cancel to cancel."
 
 var editInstructions = map[string]string{
 	"amount":   "Enter the new amount, such as 25 or RM25.50.",
@@ -22,7 +25,7 @@ func (bot *Bot) sendEditPrompt(ctx context.Context, chatID int64, edit money.Tel
 		return fmt.Errorf("unknown Telegram edit field")
 	}
 	text := problem + "Change " + edit.Field + " for " + edit.Before.Category + " (" + edit.Before.Date + ").\n" +
-		instructions + "\nReply to this message within 15 minutes. Send /cancel to cancel."
+		instructions + "\n" + editReplyInstructions
 	prompt, err := bot.client.prompt(ctx, chatID, text)
 	if err != nil {
 		return err
@@ -35,44 +38,49 @@ func (bot *Bot) sendEditPrompt(ctx context.Context, chatID int64, edit money.Tel
 	return bot.ledger.SaveTelegramEdit(ctx, bot.owner, chatID, edit)
 }
 
-func (bot *Bot) handleEditReply(ctx context.Context, botID int64, reply message) error {
+func (bot *Bot) handleEditReply(ctx context.Context, botID int64, reply message) (bool, error) {
 	chatID := reply.Chat.ID
 	edit, err := bot.ledger.PendingTelegramEdit(ctx, bot.owner, chatID)
 	if err != nil {
-		return err
+		return true, err
+	}
+	// A reply to an ordinary receipt can be a new transaction. Recognize our
+	// edit prompts even after a newer prompt or cancellation replaced the state.
+	if edit.PromptID != reply.ReplyTo.ID && !strings.Contains(reply.ReplyTo.Text, editReplyInstructions) {
+		return false, nil
 	}
 	if edit.PromptID != reply.ReplyTo.ID || edit.Expires <= time.Now().Unix() || reply.Date <= 0 {
 		bot.reply(ctx, chatID, "This edit is no longer active. Tap a field on the transaction card to start again.")
-		return nil
+		return true, nil
 	}
 	// Reconstruct the ID from the authenticated private chat, never from reply text.
 	id := transactionID(botID, chatID, edit.SourceID)
 	entry, exists, err := bot.ledger.TelegramTransaction(ctx, bot.owner, id)
 	if err != nil {
-		return err
+		return true, err
 	}
 	if !exists {
 		bot.reply(ctx, chatID, "This transaction has been deleted. Your reply did not create a new one.")
-		return nil
+		return true, nil
 	}
 	after, err := money.EditChatTransaction(edit.Before, edit.Field, reply.Text, time.Unix(reply.Date, 0))
 	if err != nil {
-		return bot.sendEditPrompt(ctx, chatID, edit, "Could not save that value. "+err.Error()+".\n\n")
+		return true, bot.sendEditPrompt(ctx, chatID, edit, "Could not save that value. "+err.Error()+".\n\n")
 	}
 	// A replay after a successful save is safe. A different intervening edit
 	// requires a fresh card instead of silently replacing the newer data.
 	if entry != after {
 		changed, err := bot.ledger.ChangeTelegramTransaction(ctx, bot.owner, edit.Before, &after)
 		if err != nil {
-			return err
+			return true, err
 		}
 		if !changed {
-			return bot.staleCard(ctx, chatID, edit.CardID, edit.SourceID, entry)
+			return true, bot.staleCard(ctx, chatID, edit.CardID, edit.SourceID, entry)
 		}
 	}
 	if err := bot.updateCard(ctx, chatID, edit.CardID, edit.SourceID, after); err != nil {
 		bot.loggerError("Telegram edited card delivery failed", err)
 	}
 	bot.reply(ctx, chatID, "Updated "+edit.Field+". The transaction card and your Money ledger use the saved value.")
-	return nil
+	return true, nil
 }

@@ -9,8 +9,6 @@ import (
 	_ "time/tzdata"
 )
 
-var chatEntryPattern = regexp.MustCompile(`(?i)^(?:(expense|income|transfer) )?RM *((?:[0-9]{1,3}(?:,[0-9]{3})+|[0-9]{1,9})(?:\.[0-9]{1,2})?) (.+)$`)
-
 // Match the Money form's categories so chat entries appear alongside manual ones.
 var chatCategories = map[string][]string{
 	"expense":  {"Food", "Transport", "Bills", "Shopping", "Health", "Family", "Entertainment", "Other"},
@@ -50,11 +48,11 @@ func EditChatTransaction(entry Transaction, field, value string, sentAt time.Tim
 		}
 		entry.Note = value
 	case "date":
-		parsed, err := ParseChatEntry("RM1 Other @"+strings.TrimPrefix(value, "@"), sentAt, entry.ID, entry.Source)
-		if err != nil {
-			return entry, err
+		date, remaining, err := chatDate(strings.Fields(value), sentAt)
+		if err != nil || value == "" || len(remaining) > 0 {
+			return entry, errors.New("enter today, yesterday, or a date like 2026-11-24")
 		}
-		entry.Date = parsed.Date
+		entry.Date = date
 	case "type":
 		entry.Type = strings.ToLower(value)
 		// A category from the previous type may not be meaningful for this one.
@@ -72,56 +70,47 @@ func EditChatTransaction(entry Transaction, field, value string, sentAt time.Tim
 }
 
 // ParseChatEntry uses the original send time, so delivery delays cannot shift
-// a transaction into the next day. An explicit @date takes precedence.
+// a transaction into the next day. Category and account inference is kept
+// separate from amount/date validation, and the saved card shows the result.
 func ParseChatEntry(text string, sentAt time.Time, id, source string) (Transaction, error) {
-	location, err := time.LoadLocation("Asia/Kuala_Lumpur")
-	if err != nil {
-		return Transaction{}, errors.New("Malaysia time zone is unavailable")
-	}
-	text = strings.Join(strings.Fields(text), " ")
-	date := sentAt.In(location)
-	if split := strings.LastIndex(text, " @"); split >= 0 {
-		switch value := strings.ToLower(text[split+2:]); value {
-		case "today":
-		case "yesterday":
-			date = date.AddDate(0, 0, -1)
-		default:
-			date, err = time.Parse(time.DateOnly, value)
-			if err != nil {
-				return Transaction{}, errors.New("use @today, @yesterday, or a date like @2026-11-09")
-			}
-		}
-		text = text[:split]
-	}
-
-	fields := chatEntryPattern.FindStringSubmatch(text)
-	if fields == nil {
-		return Transaction{}, errors.New("start with an RM amount followed by a category")
-	}
-	entryType := strings.ToLower(fields[1])
-	if entryType == "" {
-		entryType = "expense"
-	}
-	amountSen, err := chatAmountSen(fields[2])
+	words := strings.Fields(text)
+	kind, words := chatType(words)
+	amountSen, words, err := chatAmount(words)
 	if err != nil {
 		return Transaction{}, err
 	}
-
-	categoryAndNote := fields[3]
-	lower := strings.ToLower(categoryAndNote)
-	for _, category := range chatCategories[entryType] {
-		name := strings.ToLower(category)
-		if lower != name && !strings.HasPrefix(lower, name+" ") {
-			continue
-		}
-		transaction := Transaction{
-			ID: id, Type: entryType, AmountSen: amountSen, Date: date.Format(time.DateOnly),
-			Category: category, Account: "Unspecified", Note: strings.TrimSpace(categoryAndNote[len(category):]), Source: source,
-		}
-		err := transaction.validate()
-		return transaction, err
+	date, words, err := chatDate(words, sentAt)
+	if err != nil {
+		return Transaction{}, err
 	}
-	return Transaction{}, errors.New("choose a category from the Money tab for this transaction type")
+	afterAmountKind, words := chatType(words)
+	if afterAmountKind != "" {
+		if kind != "" && kind != afterAmountKind {
+			return Transaction{}, errors.New("choose one transaction type per message")
+		}
+		kind = afterAmountKind
+	}
+	if kind == "" {
+		kind = "expense"
+	}
+	// Protect multiword categories such as Bank Move and Card Payment from
+	// being mistaken for account names.
+	category, words := takeChatCategory(kind, words)
+	account, words, err := chatAccount(words)
+	if err != nil {
+		return Transaction{}, err
+	}
+	if category == "" {
+		category, words = takeChatCategory(kind, words)
+	}
+	if category == "" {
+		category = inferChatCategory(kind, words)
+	}
+	entry := Transaction{
+		ID: id, Type: kind, AmountSen: amountSen, Date: date,
+		Category: category, Account: account, Note: strings.Join(words, " "), Source: source,
+	}
+	return entry, entry.validate()
 }
 
 func chatAmountSen(value string) (int64, error) {

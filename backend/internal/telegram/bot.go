@@ -13,7 +13,7 @@ import (
 	"clearday/backend/internal/money"
 )
 
-const usage = "Try RM20 Food dinner, income RM1200 Salary, or RM20 Food dinner @yesterday."
+const usage = "Try RM12.50 lunch today tng, RM12.50 dinner, or RM12.50 yesterday. Meals use Food; other descriptions can use Other. Add cash, tng, or another account and today, yesterday, or YYYY-MM-DD. Use income RM1200 Salary or transfer RM100 Savings for other types. Edit any field from the saved card."
 
 var (
 	tokenPattern = regexp.MustCompile(`^[0-9]+:[A-Za-z0-9_-]+$`)
@@ -148,7 +148,10 @@ func (bot *Bot) handle(ctx context.Context, botID int64, message message) error 
 		return nil
 	}
 	if message.ReplyTo != nil && message.ReplyTo.From.ID == botID {
-		return bot.handleEditReply(ctx, botID, message)
+		handled, err := bot.handleEditReply(ctx, botID, message)
+		if handled || err != nil {
+			return err
+		}
 	}
 	if strings.HasPrefix(text, "/") {
 		bot.reply(ctx, chat, usage)

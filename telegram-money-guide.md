@@ -21,12 +21,28 @@ ClearDay checks the saved connection each time you sign in. **Open Telegram** go
 
 | Message | What ClearDay records |
 |---|---|
+| `RM12.50 lunch today tng` | An RM12.50 Food expense today, paid with Touch 'n Go, with lunch as the note |
+| `RM12.50 lunch today` | An RM12.50 Food expense today |
+| `RM12.50 dinner` | An RM12.50 Food expense on the day you sent it |
+| `RM12.50 yesterday` | An RM12.50 Other expense dated yesterday |
 | `RM20 food dinner` | An RM20 expense in Food, with dinner as the note |
 | `RM12.50 Transport Grab @yesterday` | An RM12.50 expense dated yesterday |
 | `income RM1,200.00 Salary @2026-11-09` | RM1,200 of income on the date you specify |
 | `transfer RM100 Savings` | An RM100 transfer in Savings |
 
-Use a category from the Money tab. Without an explicit date, ClearDay uses when you sent the message in Kuala Lumpur time. The default account is **Unspecified**. Select **Period → All months** to include older transactions.
+You can put the RM amount, description, date, and account in different orders. `lunch RM12.50 tng yesterday` works too. A bare amount at the beginning uses MYR, so `12.50 dinner cash` also works.
+
+Replying to an ordinary bot receipt can create a new transaction. A reply to an edit prompt changes the selected field and follows that prompt's expiry and cancellation rules.
+
+Expense is the default type. Use **income** or **received** at the beginning for income, and **transfer** for transfers. A category name at the beginning of the description takes precedence over keyword inference. For example, `RM20 Transport Grab dinner` stays in Transport.
+
+Common meal words such as breakfast, lunch, dinner, coffee, and snacks use **Food**. Petrol, parking, toll, and train use **Transport**. Other familiar keywords cover bills, health, shopping, family, and entertainment. Unrecognized descriptions use **Other**, and the card lets you edit the result.
+
+Recognized accounts include **tng / Touch 'n Go**, **applepay / Apple Pay**, **grabpay / GrabPay**, **bank**, **cash**, **credit card / cc**, and **debit card**. You can include **using**, **via**, **with**, or **paid with** before an account. The default account is **Unspecified**.
+
+Dates can be **today**, **yesterday**, **tomorrow**, **last night**, **2 days ago**, **YYYY-MM-DD**, or **DD/MM/YYYY**. Short forms **tdy**, **ytd**, and **tmr** work. The original **@date** form works anywhere and takes precedence over an unmarked date. Dates use when you sent the message in Kuala Lumpur time.
+
+Send one amount, account, and date per message. Conflicting metadata, invalid amounts, and invalid dates produce a correction message before saving. An ambiguous period such as **last week** requires an exact date. Choose **All time** in Money to include older transactions.
 
 ## Edit or delete from the Telegram card
 
