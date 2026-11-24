@@ -9,7 +9,8 @@ import (
 var chatCurrencyValue = regexp.MustCompile(`^[+-]?[0-9.]`)
 
 func chatWord(word string) string {
-	return strings.Trim(strings.ToLower(word), ".,;:!?()[]{}\"'")
+	word = strings.ReplaceAll(word, "’", "'")
+	return strings.Trim(strings.ToLower(word), ".,;:!?()[]{}\"'‘“”")
 }
 
 func chatPhrase(words []string, start int, phrase string) bool {
